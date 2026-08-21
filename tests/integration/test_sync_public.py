@@ -54,7 +54,7 @@ def fixture(tmp_path):
     manifest = tmp_path / "manifest.txt"
     manifest.write_text("# fixture manifest\nkeep.md\nsub/\n")
     denylist = tmp_path / "denylist.txt"
-    denylist.write_text("# fixture denylist\nci:acme-client\ncs:\\bAsh\\b\n")
+    denylist.write_text("# fixture denylist\nci:acme-client\ncs:\\bZed\\b\n")
 
     mirror = tmp_path / "mirror"
     _init_repo(mirror)
@@ -107,11 +107,27 @@ def test_malformed_denylist_pattern_fails_closed(fixture):
 def test_manifest_entry_escaping_repo_is_refused(fixture):
     outside = fixture.source.parent / "outside.txt"
     outside.write_text("outside the repo\n")
-    fixture.manifest.write_text("../outside.txt\n")
+    for entry in ("../outside.txt", "sub/../../outside.txt", "/etc/hosts"):
+        fixture.manifest.write_text(entry + "\n")
+        result = run_sync(fixture, "--apply")
+        assert result.returncode == 2, entry
+        assert "escapes the repo" in result.stderr, entry
+        assert mirror_commits(fixture) == 0
+
+
+def test_case_sensitive_pattern_ignores_lowercase_word(fixture):
+    # cs: patterns are deliberately case-sensitive so a capitalized private
+    # name blocks while the same letters as a lowercase English word publish.
+    # (Neutral token here — a real denylisted name in this file would trip
+    # the gate on the repo's own sync, since tests/ is allowlisted.)
+    (fixture.source / "keep.md").write_text("the zed word is fine in prose\n")
+    result = run_sync(fixture, "--apply")
+    assert result.returncode == 0, result.stdout + result.stderr
+
+    (fixture.source / "keep.md").write_text("as Zed suggested\n")
     result = run_sync(fixture, "--apply")
     assert result.returncode == 2
-    assert "escapes the repo" in result.stderr
-    assert mirror_commits(fixture) == 0
+    assert "DENYLIST HIT" in result.stdout
 
 
 def test_dry_run_is_default_and_commits_nothing(fixture):

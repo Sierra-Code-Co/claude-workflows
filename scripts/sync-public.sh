@@ -63,7 +63,10 @@ while IFS= read -r line; do
   # public-denylist.txt is excluded unconditionally: it enumerates the client
   # names it exists to protect, so publishing it would defeat its purpose (and
   # it would self-trip the grep gate below).
-  (cd "$REPO_DIR" && rsync -aR --exclude '.DS_Store' --exclude '__pycache__' \
+  # --safe-links drops symlinks that point outside the copied tree, so a
+  # stray absolute/escaping link inside an allowlisted dir can't reach the
+  # mirror.
+  (cd "$REPO_DIR" && rsync -aR --safe-links --exclude '.DS_Store' --exclude '__pycache__' \
     --exclude '*.pyc' --exclude '.pytest_cache' --exclude 'public-denylist.txt' \
     "$entry" "$STAGE/")
 done < "$MANIFEST"
