@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sierra-code-co.internal/schemas/gate-registry.json",
+  "title": "Gate Registry",
+  "description": "The declared quality-gate portfolio. Loaded at orchestrator startup. Invariants here are enforced at load time and fail the run — a portfolio that cannot be validated is not a portfolio.",
+  "type": "object",
+  "required": ["version", "gates"],
+  "additionalProperties": false,
+  "properties": {
+    "version": { "type": "integer", "const": 1 },
+    "gates": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/gate" }
+    }
+  },
+  "$defs": {
+    "gate": {
+      "type": "object",
+      "required": ["id", "tier", "blocking", "order", "cost", "failure_proof"],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^[a-z0-9]+(\\.[a-z0-9-]+)*$",
+          "description": "Stable slug. Structural rules use the 'structural.<rule-id>' prefix."
+        },
+        "tier": { "enum": ["deterministic", "probabilistic"] },
+        "blocking": { "enum": ["blocks", "advisory"] },
+        "order": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Ascending. Equal values run in parallel."
+        },
+        "cost": {
+          "enum": ["free", "llm"],
+          "description": "Drives the FR-012 short-circuit: no llm-cost gate runs if a free gate failed."
+        },
+        "failure_proof": {
+          "$ref": "#/$defs/repoRelativePath",
+          "description": "Path to an executable proof. REQUIRED (FR-007). A dangling reference fails registry load — SC-004 verifies by running these, not by reading them, which is why the path is constrained: pathlib discards the root on an absolute right operand, so before T005g a gate naming '/tmp/anything.sh' passed the existence check by pointing outside the tree and was then executed."
+        },
+        "enabled_since": { "type": "string", "format": "date" },
+        "promoted_at": {
+          "type": ["string", "null"],
+          "format": "date",
+          "description": "Null while advisory."
+        },
+        "acceptance": { "$ref": "#/$defs/acceptance" },
+        "rule": {
+          "$ref": "#/$defs/repoRelativePath",
+          "description": "For tier=deterministic structural gates: path to the ast-grep rule YAML. Same constraint as failure_proof — it is resolved and handed to a subprocess."
+        }
+      },
+      "allOf": [
+        {
+          "$comment": "FR-013/FR-014 — a probabilistic gate may only block with measured acceptance. This is the invariant that stops the next gate being added at the wrong tier by habit.",
+          "if": {
+            "properties": {
+              "tier": { "const": "probabilistic" },
+              "blocking": { "const": "blocks" }
+            },
+            "required": ["tier", "blocking"]
+          },
+          "then": {
+            "required": ["acceptance", "promoted_at"],
+            "$comment": "`required` checks PRESENCE, not non-nullness. Without this properties clause, a gate could carry `promoted_at: null` — which the data model defines as 'never promoted' — satisfy `required`, and block anyway. That is the identical bypass found in finding-envelope.schema.json (`claim` omitted rather than null), in the sibling contract, and it was found the same way: by deriving the shape list from the schema's own `if` blocks instead of recalling it (FR-008a). Recall produced neither.",
+            "properties": { "promoted_at": { "type": "string" } }
+          }
+        },
+        {
+          "$comment": "A deterministic gate never costs LLM spend.",
+          "if": {
+            "properties": { "tier": { "const": "deterministic" } },
+            "required": ["tier"]
+          },
+          "then": { "properties": { "cost": { "const": "free" } } }
+        },
+        {
+          "$comment": "And the converse, which was stated in a comment and enforced nowhere until 2026-08-14. A probabilistic gate declaring `cost: free` validated fine, then sorted into the free band, so FR-012 ordered it ahead of every llm gate while it spent LLM money on every run — the ordering rule the original comment claimed to keep checkable, made unenforceable by the missing half. Found by this repo's own reviewer noticing the comment asserted a biconditional and the schema enforced one direction. Same family as the promoted_at bypass above, in the same file: the derived shape list covered `deterministic + cost:llm` and never the mirror image.",
+          "if": {
+            "properties": { "tier": { "const": "probabilistic" } },
+            "required": ["tier"]
+          },
+          "then": { "properties": { "cost": { "const": "llm" } } }
+        },
+        {
+          "$comment": "Structural gates must name the rule they run.",
+          "if": {
+            "properties": { "id": { "pattern": "^structural\\." } },
+            "required": ["id"]
+          },
+          "then": { "required": ["rule"] }
+        }
+      ]
+    },
+    "repoRelativePath": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^(?!/)(?![\\s\\S]*(?:^|/)\\.\\.(?:/|$))(?:[^/\\\\]+/)*[^/\\\\]+$",
+      "$comment": "Repo-relative, no upward segments, no empty segments, no backslashes. Rejects '/abs', '../x', 'a/../x' and ''. Deliberately ACCEPTS '..foo' and 'a/..b/c' — those are ordinary filenames, and a guard that refuses them is matching the substring '..' rather than the segment, which is the usual way this check is got wrong. Two corrections from review, both confirmed by measurement before fixing: (1) the traversal lookahead used '(?:.*/)?', and '.' matches no line terminator in ECMA-262 or in Python's re, so 'a\\n/../x' held a real '..' segment the lookahead could not reach across and was ACCEPTED — '[\\s\\S]*' with a segment-boundary alternation fixes it; (2) only '/' counted as a separator, so on Windows '..\\..\\x' and 'C:\\tmp\\x' passed, hence backslash is now excluded from every segment. This is the textual layer only; it cannot see a repo-internal symlink pointing outward, so registry.py::_check_paths_are_contained re-checks on the RESOLVED path. Neither layer subsumes the other."
+    },
+    "acceptance": {
+      "type": "object",
+      "required": ["runs", "accepted", "measured_through"],
+      "additionalProperties": false,
+      "properties": {
+        "runs": { "type": "integer", "minimum": 1 },
+        "accepted": { "type": "integer", "minimum": 0 },
+        "measured_through": { "type": "string", "format": "date" }
+      }
+    }
+  }
+}

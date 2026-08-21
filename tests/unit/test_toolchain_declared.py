@@ -431,6 +431,11 @@ def test_the_markdownlint_baseline_stays_at_zero():
     )
 
 
+@pytest.mark.skipif(
+    not (REPO_ROOT / ".claude").is_dir(),
+    reason="no .claude/ surface — running in the public mirror, which "
+    "deliberately excludes it (ADR-0010)",
+)
 def test_the_markdownlint_scope_actually_reaches_dot_directories():
     """Anti-vacuous companion: the scope must MATCH something.
 

@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://sierra-code-co.internal/schemas/finding-envelope.json",
+  "title": "Finding Envelope",
+  "description": "A reviewer finding as it flows through the aggregator. Verification (US2) attaches after dedup and before tiering, so a claim is checked once rather than once per reviewer that raised it.",
+  "type": "object",
+  "required": ["gate_id", "file", "severity", "body", "claim", "verdict"],
+  "additionalProperties": false,
+  "properties": {
+    "gate_id": { "type": "string" },
+    "file": { "type": "string" },
+    "line": { "type": ["integer", "null"], "minimum": 1 },
+    "severity": { "enum": ["critical", "major", "minor", "nit", "info"] },
+    "body": { "type": "string", "minLength": 1 },
+    "claim": {
+      "oneOf": [{ "$ref": "#/$defs/claim" }, { "type": "null" }],
+      "description": "Null when the finding rests on judgment rather than a checkable fact. A null claim is NOT a defect and must not be penalized (FR-002). REQUIRED — must be explicitly null rather than omitted. Omission was a real bypass: with `claim` optional, a finding could carry verdict:confirmed with no claim at all and validate, defeating the FR-002 guard entirely. Found by review-plan-v2 on this PR; the original tests only covered explicit null, which is the shape the author thought of."
+    },
+    "verdict": {
+      "enum": ["confirmed", "refuted", "unverifiable", "unchecked"],
+      "description": "refuted => never rendered (FR-002). unverifiable/unchecked => rendered WITH a marker (FR-003). 'unchecked' means verification itself failed or timed out and must never silently render as confirmed."
+    },
+    "verdict_detail": {
+      "type": ["string", "null"],
+      "description": "Why. For refuted, the observed value that contradicts the claim."
+    }
+  },
+  "allOf": [
+    {
+      "$comment": "FR-002 third clause: a judgment finding carries no claim, so there is nothing to verify. Guarding this in the schema stops a future change from quietly dropping every design finding for failing verification it was never eligible for.",
+      "if": {
+        "properties": { "claim": { "type": "null" } },
+        "required": ["claim"]
+      },
+      "then": { "properties": { "verdict": { "const": "unverifiable" } } }
+    },
+    {
+      "$comment": "A refutation must say what refuted it. An unexplained drop is indistinguishable from a bug in the verifier.",
+      "if": {
+        "properties": { "verdict": { "const": "refuted" } },
+        "required": ["verdict"]
+      },
+      "then": {
+        "properties": { "verdict_detail": { "type": "string", "minLength": 1 } },
+        "required": ["verdict_detail"]
+      }
+    }
+  ],
+  "$defs": {
+    "claim": {
+      "type": "object",
+      "required": ["kind", "subject", "expected", "check"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["symbol_exists", "symbol_absent", "return_shape", "predicate_result", "count"],
+          "description": "Drawn from the 2026-08-13 gold set, not invented. Every checkable-false finding measured was return_shape (the describeThrown recurrence), predicate_result (the AST predicate claim), or symbol_absent ('no tests exist')."
+        },
+        "subject": { "type": "string", "minLength": 1 },
+        "expected": { "type": "string", "minLength": 1 },
+        "check": { "$ref": "#/$defs/check" }
+      }
+    },
+    "check": {
+      "type": "object",
+      "required": ["method", "input"],
+      "additionalProperties": false,
+      "properties": {
+        "method": {
+          "enum": ["enumerate", "typecheck", "execute"],
+          "description": "'execute' is gated on the sandboxing question (research R3 open question 2) and resolves to unverifiable until that is settled. enumerate + typecheck alone refute all three checkable-false gold-set findings, so SC-002 does not depend on execute shipping."
+        },
+        "input": { "type": "string", "minLength": 1 }
+      }
+    }
+  }
+}

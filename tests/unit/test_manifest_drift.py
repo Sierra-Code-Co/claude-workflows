@@ -192,6 +192,11 @@ def test_a_rebuild_preserves_declared_local_edits(repo):
 # --- the real repo ------------------------------------------------------------
 
 
+@pytest.mark.skipif(
+    not (REPO_ROOT / ".specify").is_dir(),
+    reason="no vendored .specify/ surface — running in the public mirror, "
+    "which deliberately excludes it (ADR-0010)",
+)
 def test_the_shipped_manifest_covers_the_whole_vendored_surface():
     """The state T053 closed: 1 file tracked out of 23, reported as no drift.
 

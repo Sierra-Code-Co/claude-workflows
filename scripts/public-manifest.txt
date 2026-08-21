@@ -25,6 +25,7 @@ dotfiles/
 rules/
 references/
 specs/001-review-plan-v2/
+specs/003-gate-portfolio/
 experiments/
 gates.yml
 .review-plan-v2.yaml
