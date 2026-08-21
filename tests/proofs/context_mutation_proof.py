@@ -845,6 +845,15 @@ def run() -> int:
         return 1
     failures = []
     for label, relpath, old, new, test in MUTATIONS:
+        # The public mirror (ADR-0010) ships without .claude/ and .specify/.
+        # A mutation whose whole SURFACE is absent skips loudly; a missing
+        # file inside a present surface still fails below — internally, a
+        # renamed target must break this proof, not silence it.
+        surface = pathlib.Path(relpath).parts[0]
+        if not (REPO / surface).exists():
+            print(f"  skip {label}\n         -> surface {surface}/ absent "
+                  f"(public mirror, ADR-0010)")
+            continue
         with tempfile.TemporaryDirectory() as tmp:
             work = pathlib.Path(tmp) / "repo"
             shutil.copytree(REPO, work, symlinks=True,
