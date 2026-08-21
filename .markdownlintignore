@@ -19,6 +19,7 @@ scripts/review_plan_v2/prompts/
 .claude/skills/speckit-checklist/
 .claude/skills/speckit-clarify/
 .claude/skills/speckit-constitution/
+.claude/skills/speckit-converge/
 .claude/skills/speckit-implement/
 .claude/skills/speckit-plan/
 .claude/skills/speckit-specify/

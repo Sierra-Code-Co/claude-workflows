@@ -35,6 +35,17 @@ reviews:
     - '!.claude/shell-snapshots/**'
     - '!.claude/todos/**'
     - '!references/**'
+    # VENDORED spec-kit content: copied verbatim from github/spec-kit by
+    # `specify init` and re-vendored on every upgrade. Reviewing it locally
+    # produces findings only upstream can fix (filed: spec-kit#4269-#4273) and
+    # blew review-plan-v2's run budget (124 tasks) on the v1.0.1 upgrade.
+    # gitleaks CI still scans these paths; the intentional local delta is the
+    # disable-model-invocation flag, re-applied mechanically. Residual risk
+    # accepted: a compromised upstream release could land unreviewed — the
+    # mitigation is the version-pinned re-vendor (SPECKIT_VERSION tag in the
+    # template's setup.sh), reviewed release-by-release, not per-diff.
+    - '!.claude/skills/speckit-*/**'
+    - '!.specify/**'
 
   auto_review:
     enabled: true
