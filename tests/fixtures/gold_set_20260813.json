@@ -1,0 +1,174 @@
+{
+  "$comment": "The 10 actionable findings from the 2026-08-13 post-fix comparison (US2/US5 replay corpus, spec 003). Each carries the verdict it was classified with BY READING THE CODE, before any verifier existed. Fixed corpus on purpose: a change to prompts must not be able to move the target. Verified against tests/fixtures/gold_set_corpus/, which is hermetic — see its README for what is faithful and what is trimmed.",
+  "measured_on": "2026-08-13",
+  "corpus_root": "tests/fixtures/gold_set_corpus",
+  "$comment_rules": "No gold-set claim resolves through a registered structural rule, so no rules_dir is declared here. The rule-id branch of the allowlist is covered by tests/unit/test_verify.py against a temporary rule; declaring a path this fixture never reads would be a claim with nothing behind it.",
+  "$comment_scoring": "SC-002 is measured as two separate assertions, never as an aggregate rate: all 3 'real' findings retained, all 3 'checkable_false' findings refuted. 'false_not_checkable' and 'test_blindness' are deliberately NEITHER — G3 needs execution (FR-024) and the test-blindness trio is US5's measure. Counting them into a single percentage would let a regression in one class be paid for by an improvement in another.",
+  "findings": [
+    {
+      "id": "G1",
+      "diff": "mtg-cube-ai#2099",
+      "classification": "real",
+      "expected_verdict": "unverifiable",
+      "expected_rendered": true,
+      "gate_id": "reviewer.correctness",
+      "file": "web/src/lib/server/deck-dedup.ts",
+      "line": 3,
+      "severity": "major",
+      "body": "Switching commanderDedupKey to a byte-stable comparator orphans dedup keys already persisted under the previous ordering; those rows can each spawn one duplicate on their next save.",
+      "claim": null,
+      "note": "REAL — independently matched CodeRabbit's own Major, and confirmed by querying production (8 affected rows, all predating canonicalisation). It rests on the state of historical data, not on a fact about this checkout, so it is correctly claim: null and must be RETAINED. This is the entry that stops a future tightening from dropping every judgment finding for failing a verification it was never eligible for."
+    },
+    {
+      "id": "G2",
+      "diff": "mtg-cube-ai#2099",
+      "classification": "checkable_false",
+      "expected_verdict": "refuted",
+      "expected_rendered": false,
+      "gate_id": "reviewer.tests",
+      "file": "web/src/lib/server/deck-dedup.ts",
+      "line": 3,
+      "severity": "major",
+      "body": "No test coverage was added for the comparator change.",
+      "claim": {
+        "kind": "symbol_absent",
+        "subject": "commanderDedupKey",
+        "expected": "no test file references commanderDedupKey",
+        "check": { "method": "enumerate", "input": "tests:commanderDedupKey" }
+      },
+      "note": "FALSE — deck-dedup.test.ts was in the same diff. The reviewer could not see it (FR-010, US5's fix). US2's narrower job is to enumerate the checkout and observe the reference, which refutes the claim without needing to know why the reviewer was wrong."
+    },
+    {
+      "id": "G3",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "false_not_checkable",
+      "expected_verdict": "unverifiable",
+      "expected_rendered": true,
+      "gate_id": "reviewer.correctness",
+      "file": "web/src/lib/server/console-guard.ts",
+      "line": 26,
+      "severity": "major",
+      "body": "offenders() uses ts.isCallExpression, which does not match optional-chain calls, so logger?.error(e) slips past the guard.",
+      "claim": {
+        "kind": "predicate_result",
+        "subject": "ts.isCallExpression",
+        "expected": "false for an optional-chain call expression",
+        "check": { "method": "execute", "input": "ts.isCallExpression" }
+      },
+      "note": "FALSE in fact — the TypeScript parser produces a CallExpression with a questionDotToken for a?.b(), so the predicate does match. But settling that means RUNNING the compiler, and the execute method is deferred by FR-024 until a sandboxing model is specified. So the honest outcome is unverifiable-and-rendered, not refuted. Encoding it as refutable would be the presence-vs-substance mistake in a new costume: claiming a verification that did not happen. This entry exists to keep that honest — if a future change makes it 'refuted' without shipping a sandbox, the replay must fail."
+    },
+    {
+      "id": "G4",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "checkable_false",
+      "expected_verdict": "refuted",
+      "expected_rendered": false,
+      "gate_id": "reviewer.tests",
+      "file": "web/src/lib/server/console-guard.ts",
+      "line": 26,
+      "severity": "minor",
+      "body": "No test exercises the optional-chain form.",
+      "claim": {
+        "kind": "count",
+        "subject": "test cases naming the optional-chain form",
+        "expected": "0",
+        "check": { "method": "enumerate", "input": "tests:\"optional-chain\"" }
+      },
+      "note": "FALSE — console-guard.test.ts contains it('sees an optional-chain call'). Encoded as a literal-needle count rather than a symbol lookup because the construct under test is syntax, not an identifier. The needle is only ever an argument to a string search; it never reaches a shell (FR-023)."
+    },
+    {
+      "id": "G5",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "real",
+      "expected_verdict": "confirmed",
+      "expected_rendered": true,
+      "gate_id": "reviewer.correctness",
+      "file": "web/src/lib/server/console-guard.ts",
+      "line": 20,
+      "severity": "critical",
+      "body": "offenders() pre-strips block comments with a regex before parsing. A /* inside a line comment opens a span the regex closes at the next */, which can delete real code before the parser ever sees it (FR-006).",
+      "claim": {
+        "kind": "symbol_exists",
+        "subject": "stripBlockComments",
+        "expected": "a regex comment-stripper runs before the parser",
+        "check": { "method": "enumerate", "input": "src:stripBlockComments" }
+      },
+      "note": "REAL AND STILL LIVE downstream (mtg-cube-ai#2110): on +server.ts:3511 the /* inside `// delegate to /api/workflow/tools/*` opens a fake block comment closed 765 lines later by the */ inside a regex literal, deleting a 33,904-char span with 6 live console calls. This entry is the anti-vacuous control for the whole verification stage: a verifier that refuted everything would score 3/3 on the false findings, so at least one real finding must be CONFIRMED by an affirmative check rather than merely surviving as claim: null."
+    },
+    {
+      "id": "G6",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "checkable_false",
+      "expected_verdict": "refuted",
+      "expected_rendered": false,
+      "gate_id": "reviewer.correctness",
+      "file": "web/src/lib/server/describe-thrown.ts",
+      "line": 18,
+      "severity": "major",
+      "body": "describeThrown(...).errMessage may be undefined, since describeThrown returns { name, message }.",
+      "claim": {
+        "kind": "return_shape",
+        "subject": "describeThrown",
+        "expected": "name, message",
+        "check": { "method": "typecheck", "input": "web/src/lib/server/describe-thrown.ts::describeThrown" }
+      },
+      "note": "FALSE, and the third independent recurrence of this exact claim across two runs. The declared return type is ThrownDescription { errName, errMessage, errCode }. Eight lines of executed code — or one declaration lookup — kills it. This is the finding that motivated the typecheck method."
+    },
+    {
+      "id": "G7",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "real",
+      "expected_verdict": "unverifiable",
+      "expected_rendered": true,
+      "gate_id": "reviewer.correctness",
+      "file": "web/src/lib/server/describe-thrown.ts",
+      "line": 18,
+      "severity": "minor",
+      "body": "Replacing the caught error object with a described summary discards the stack trace that the surrounding logging contract promises.",
+      "claim": null,
+      "note": "REAL — a design-consequence judgment about a logging contract, not a checkable fact about a declaration. Correctly claim: null, and must be RETAINED."
+    },
+    {
+      "id": "G8",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "test_blindness",
+      "expected_verdict": "unverifiable",
+      "expected_rendered": true,
+      "gate_id": "reviewer.tests",
+      "file": "web/src/lib/server/console-guard.ts",
+      "line": 20,
+      "severity": "nit",
+      "body": "No tests for this catch path.",
+      "claim": null,
+      "note": "The test-blindness class (3 of the 10). US5's measure, not US2's: the fix is to mark added test files as tests in the prompt (FR-010) so the finding is never generated, not to refute it after the fact. Carried in the corpus so a US5 change can be measured against the same 10 findings."
+    },
+    {
+      "id": "G9",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "test_blindness",
+      "expected_verdict": "unverifiable",
+      "expected_rendered": true,
+      "gate_id": "reviewer.tests",
+      "file": "web/src/lib/server/deck-dedup.ts",
+      "line": 8,
+      "severity": "nit",
+      "body": "No tests for this catch path.",
+      "claim": null,
+      "note": "See G8."
+    },
+    {
+      "id": "G10",
+      "diff": "mtg-cube-ai#2101",
+      "classification": "test_blindness",
+      "expected_verdict": "unverifiable",
+      "expected_rendered": true,
+      "gate_id": "reviewer.tests",
+      "file": "web/src/lib/server/describe-thrown.ts",
+      "line": 18,
+      "severity": "nit",
+      "body": "No tests for this catch path.",
+      "claim": null,
+      "note": "See G8."
+    }
+  ]
+}

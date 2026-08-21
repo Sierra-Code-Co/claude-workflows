@@ -1,0 +1,8 @@
+{
+  "$comment": "markdownlint is one of the deterministic analyzers in review-plan-v2. Measured 2026-08-14 on a clean tree it emitted 2541 errors, which makes a gate unpromotable: a check that can never be green trains readers to ignore it, which is indistinguishable from having no check. 1900 were MD013 and 457 MD060 -- pure style preferences this repo has never followed, neither affecting rendering. UPDATED 2026-08-16 (T063a): residual driven from 177 to ZERO. MD036 is disabled because both remaining hits were FALSE POSITIVES -- a bolded conclusion sentence and an italicised quotation, neither a heading -- and the rule cannot tell those from a heading. Converting them would have been a lint-driven meaning change, which is exactly what `markdownlint --fix` did unsupervised on this repo: it rewrote the issue reference `#13` into `# 13`, an H1. Prompt bodies under scripts/review_plan_v2/prompts/ are excluded via .markdownlintignore for the same reason -- adding an H1 changes what the reviewer model receives.",
+  "default": true,
+  "MD013": false,
+  "MD060": false,
+  "MD041": true,
+  "MD036": false
+}

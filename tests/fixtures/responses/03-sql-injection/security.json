@@ -1,0 +1,1 @@
+{"choices":[{"message":{"content":"[{\"file\":\"src/db.ts\",\"line\":5,\"line_end\":null,\"severity\":\"actionable\",\"category\":\"security\",\"message\":\"SQL injection: string concatenation builds the query from untrusted input. Use a parameterized query.\"}]"}}],"usage":{"prompt_tokens":280,"completion_tokens":75}}

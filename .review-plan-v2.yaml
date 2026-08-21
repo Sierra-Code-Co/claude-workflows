@@ -1,0 +1,47 @@
+# review-plan-v2 configuration for its own repository.
+#
+# This file was absent until 2026-08-13, which meant the tool reviewed its own
+# source with a DeepSeek broad pass only — the cascade never engaged on the
+# provider clients that hold API keys. That is also why the OpenAI leg being
+# dead for three months was never caught by the tool reviewing itself.
+#
+# Keep `reason` specific: it is fed to the escalated reviewer as context, so
+# "handles secrets" is worth less than the failure mode to look for.
+
+high_risk_paths:
+  - path: "scripts/review_plan_v2/providers/**"
+    reason: >-
+      Provider clients hold live API keys and are the only code here that
+      talks to an external service. Check: is the outgoing payload shape one
+      the target model actually accepts (the gpt-5.x family rejects
+      `max_tokens` outright and needs `max_completion_tokens`)? Is every
+      non-2xx body captured and passed to the operator rather than discarded?
+      Is every error path routed through `_errors.redact` before it reaches a
+      terminal — google.py passes its API key as a URL query parameter, so
+      echoed request context is a live credential? Does an HTTP 200 with empty
+      content get treated as a failure rather than a clean review?
+
+  - path: "scripts/review_plan_v2/telemetry.py"
+    reason: >-
+      FR-015 forbids prompt content, diff content, and message bodies in
+      calls.jsonl. The allowlist is the only thing enforcing it. Check: does a
+      new key admit free text? `CallResult.error_detail` in particular must
+      never become loggable — it exists to carry a provider error body to
+      stderr and nowhere else.
+
+  - path: "scripts/review_plan_v2/orchestrator.py"
+    reason: >-
+      Owns run health and the exit code, which every pre-push hook and CI
+      caller gates on. Check: can a reviewer task fail without incrementing
+      `failed_task_count`? Does a provider that fails every call still get
+      reported as having participated? Exit 0 must mean "reviewed and clean",
+      never "did not run" — that conflation hid a dead cascade leg for three
+      months.
+
+  - path: "tests/support/fixture_server.py"
+    reason: >-
+      The integration suite's only stand-in for a real provider. A routing
+      pattern that fails to match makes a leg 404 on every test while the
+      suite stays green — exactly what happened to the Gemini path when its
+      regex omitted the query string. Check: does each provider's real URL
+      shape, including query parameters, actually match?

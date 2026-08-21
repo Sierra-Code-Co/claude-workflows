@@ -1,0 +1,13 @@
+diff --git a/src/db.ts b/src/db.ts
+new file mode 100644
+index 0000000..e4f5g6h
+--- /dev/null
++++ b/src/db.ts
+@@ -0,0 +1,7 @@
++import { db } from './client';
++
++export async function lookupUser(name: string) {
++  // VULN: SQL injection via string concatenation
++  const query = "SELECT * FROM users WHERE name = '" + name + "'";
++  return db.query(query);
++}

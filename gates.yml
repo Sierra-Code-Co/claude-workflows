@@ -1,0 +1,161 @@
+# The gate portfolio, declared (T011).
+#
+# Until now the set of checks was implicit in orchestrator.py's control flow,
+# which is why nothing stopped the next gate being added at the wrong tier by
+# habit. Declaring it lets three rules be enforced mechanically at startup
+# rather than by review convention:
+#
+#   FR-007  every gate carries a failure proof, and the reference must resolve
+#   FR-012  every free gate orders before every llm gate, so a deterministic
+#           failure can short-circuit LLM spend
+#   FR-014  a probabilistic gate may only block with measured acceptance
+#
+# `failure_proof` is REQUIRED and must resolve to a real file — which is why
+# this file could not be written until T035 shipped the analyzer proofs. The
+# invariant refused a placeholder path rather than accepting one. That block
+# was the design working, and it is recorded here because "the registry would
+# not let me lie to it" is the outcome the whole spec is arguing for.
+#
+# ────────────────────────────────────────────────────────────────────────────
+# `blocking:` IS AUTHORITATIVE as of T042 (2026-08-16).
+#
+# T012 shipped this file loaded and validated but not yet driving behaviour,
+# and carried that gap as a failing-when-fixed test rather than a comment.
+# T041/T042 closed it: `exit_code_for` now consults the portfolio, so an
+# `advisory` gate cannot fail a run, and a blocking DETERMINISTIC gate
+# short-circuits before any provider is called (FR-012, SC-006).
+#
+# Two consequences worth knowing before editing this file:
+#
+#   * Moving a gate to `advisory` genuinely stops it failing builds. Findings
+#     are still printed, and an `[ADVISORY]` notice states the count and the
+#     reason — "20 findings, exit 0" must never read like "0 findings, exit 0".
+#   * Moving a deterministic gate to `blocks` gives it the short-circuit too:
+#     when it fires, no reviewer runs and nothing is spent.
+#
+# A repo with NO gates.yml keeps the old behaviour — every actionable finding
+# blocks — so adopting this tool downstream is never a silent downgrade.
+# ────────────────────────────────────────────────────────────────────────────
+#
+# WHY EVERY DETERMINISTIC GATE ENTERS BLOCKING
+#
+# FR-014 asks a new gate to enter advisory and earn promotion with measured
+# acceptance, and the reason is noise. That reasoning does not apply at a
+# baseline of zero. Measured repo-wide across every tracked file, 2026-08-16:
+#
+#   gate           actionable   other
+#   ------------   ----------   ---------------------------
+#   gitleaks                0   0 findings at all
+#   ruff                    0   0 findings at all
+#   actionlint              0   0 findings at all
+#   shellcheck              0   40 (17 info, 23 nit)
+#   markdownlint            0   315 nit
+#
+# No backlog means no amnesty to grant, and a report-only check over a clean
+# baseline is where checkers go to die. Note what the numbers correct: T063a
+# and T063b describe markdownlint and shellcheck "residuals" of 176 and 180.
+# Those counts are nit/info tier — the ACTIONABLE count for both is zero, so
+# neither task is blocking anything. They are tidiness, not gate policy.
+version: 1
+
+gates:
+  # --- deterministic, free. Ordered ahead of every llm gate (FR-012). --------
+
+  # First on purpose: a leaked credential is the one finding whose cost does not
+  # wait for the rest of the review.
+  - id: gitleaks
+    tier: deterministic
+    blocking: blocks
+    order: 10
+    cost: free
+    failure_proof: tests/proofs/gitleaks.sh
+    enabled_since: "2026-08-16"
+
+  - id: ruff
+    tier: deterministic
+    blocking: blocks
+    order: 11
+    cost: free
+    failure_proof: tests/proofs/ruff.sh
+    enabled_since: "2026-08-16"
+
+  - id: actionlint
+    tier: deterministic
+    blocking: blocks
+    order: 12
+    cost: free
+    failure_proof: tests/proofs/actionlint.sh
+    enabled_since: "2026-08-16"
+
+  - id: shellcheck
+    tier: deterministic
+    blocking: blocks
+    order: 13
+    cost: free
+    failure_proof: tests/proofs/shellcheck.sh
+    enabled_since: "2026-08-16"
+
+  - id: markdownlint
+    tier: deterministic
+    blocking: blocks
+    order: 14
+    cost: free
+    failure_proof: tests/proofs/markdownlint.sh
+    enabled_since: "2026-08-16"
+
+  # The completeness enumerator. "Did I get all the sites?" is a deterministic
+  # question, so Principle III forbids routing it to a reviewer — on
+  # mtg-cube-ai#2071 that question went to a reviewer five times and came back
+  # wrong four of them.
+  - id: structural.raw-caught-to-logger
+    tier: deterministic
+    blocking: blocks
+    order: 20
+    cost: free
+    rule: rules/raw-caught-to-logger.yml
+    failure_proof: tests/proofs/raw_caught_to_logger.sh
+    enabled_since: "2026-08-16"
+
+  # --- probabilistic, llm. Advisory: no acceptance has been measured. --------
+  #
+  # FR-014 permits blocking only with measured acceptance, and there is none.
+  # The one hard number to hand argues strongly for advisory: of 20 findings
+  # returned on 2026-08-15's containment review, 4 were real correctness bugs
+  # and roughly 10 were the known "no tests exist" false positive — tests that
+  # were in the same diff. A gate at that precision, blocking, is a gate people
+  # learn to bypass, which costs the 4 real findings as well.
+  #
+  # `promoted_at` is deliberately absent rather than null. The schema forbids
+  # blocking without it, and it must not be filled in until an acceptance
+  # measurement exists to justify it.
+  - id: reviewer.security
+    tier: probabilistic
+    blocking: advisory
+    order: 100
+    cost: llm
+    failure_proof: tests/proofs/reviewers.sh
+    enabled_since: "2026-08-16"
+
+  - id: reviewer.correctness
+    tier: probabilistic
+    blocking: advisory
+    order: 101
+    cost: llm
+    failure_proof: tests/proofs/reviewers.sh
+    enabled_since: "2026-08-16"
+
+  - id: reviewer.tests
+    tier: probabilistic
+    blocking: advisory
+    order: 102
+    cost: llm
+    failure_proof: tests/proofs/reviewers.sh
+    enabled_since: "2026-08-16"
+
+  - id: reviewer.consistency
+    tier: probabilistic
+    blocking: advisory
+    order: 103
+    cost: llm
+    failure_proof: tests/proofs/reviewers.sh
+    enabled_since: "2026-08-16"

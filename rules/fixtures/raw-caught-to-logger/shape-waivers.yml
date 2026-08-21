@@ -1,0 +1,79 @@
+# Constraints with no CONSTRUCTIBLE near-miss (FR-008a).
+#
+# A waiver here is not "we could not think of a case". Each entry below was
+# probed against adversarial inputs written specifically to break it, and the
+# mutant still reported exactly what the original did. The probes are recorded
+# in the reasons so the claim is checkable rather than asserted.
+#
+# What a waiver CANNOT do: hide a constraint. The list of constraints is derived
+# from the rule file, so adding one to the rule raises the bar automatically and
+# the new constraint arrives unwaived. And a waiver for a constraint that later
+# becomes covered is a hard error, not a no-op — an exemption that outlives its
+# reason is how a gate quietly stops proving anything.
+#
+# The four below survived while a FIFTH candidate — `rule.all[1].inside.kind` —
+# turned out to have a perfectly constructible near-miss that eleven
+# recall-written fixture shapes had all missed. It is now N9. That ratio is the
+# argument for the whole mechanism: four exemptions bought one real hole found.
+
+waivers:
+  rule.all[0].inside.kind: >-
+    Implied by the sibling `rule.all[0].inside.inside.kind: call_expression`
+    with `stopBy: neighbor`. In the TS grammar a call_expression's only direct
+    children are the `function` and `arguments` fields, and a bare identifier in
+    function position cannot also satisfy the `^console\.` regex. Probed with
+    `new console.error(e)`, `(console.error)(e)` and `console.error?.(e)`; the
+    mutant's reported set was identical to the original's in every case.
+
+  rule.all[0].inside.inside.kind: >-
+    Implied by the sibling `has: {field: function}` immediately below it.
+    `new_expression` also carries an `arguments` field, which is the only other
+    node that could reach here, but its callee sits in a `constructor` field —
+    so the `function` field requirement already excludes it. Probed directly with
+    `new console.error(e1)`: no new match.
+
+  rule.all[0].inside.inside.has.field: >-
+    Implied by the sibling `regex: '^console\.(error|warn|log)$'`. A
+    call_expression's other direct child is the `arguments` node, whose text
+    begins with `(` and so can never match a regex anchored at `^console\.`.
+    Probed with an object literal keyed `console.error` and with a parenthesized
+    callee: no new match.
+
+  rule.all[1].inside.has.field: >-
+    Implied by the metavariable unification on `pattern: $ERR`. A catch_clause's
+    only other direct child is its `body`, a statement_block, which cannot unify
+    with an identifier. Probed alongside the N9 arrow-function case that DID
+    break the sibling `kind` constraint; this one produced no new match.
+    NOTE: N9 no longer serves that role — the shadow-exclusion clause retired it,
+    and `rule.all[1].inside.kind` is now covered by N11 instead. This waiver's
+    own claim was re-probed against N11 and still holds.
+
+  rule.all[2].not.any[1].inside.has.field: >-
+    Implied by the sibling `kind: arrow_function` together with the `pattern:
+    $ERR` beside it. Dropping the field leaves `has: {pattern: $ERR}` on an
+    arrow, which can only match a DIRECT child that is a bare identifier: the
+    unparenthesized `parameter` — identical to the constrained form — or a body
+    that IS the identifier. An ancestor arrow's body has to contain the console
+    call, so it cannot also be that bare identifier; the two requirements
+    exclude each other. Probed with four adversarial shapes written specifically
+    to break it: an arrow whose body is the identifier as a SIBLING of the
+    console call; an ancestor arrow with a non-matching parameter and a return
+    type named after the binding; an ancestor arrow whose body is the console
+    call; and nested arrows with the identifier as the inner body. The mutant
+    reported exactly what the original did in all four. The sibling `pattern` is
+    NOT waived — P11 covers it, and reports only because the exclusion checks
+    the name rather than merely the shape.
+
+  ignores[1]: >-
+    Not exercisable from this fixture BY CONSTRUCTION, and that is deliberate.
+    The `fixtures/**` exclusion resolves relative to the rule file's directory,
+    so it only bites when the tree is scanned in place under `rules/fixtures/` —
+    and every test here copies the tree OUT first, precisely so the exclusion
+    cannot hide the fixture from its own test. It is covered instead by
+    tests/unit/test_structural_rules.py::test_scope_keys_actually_exclude_proof_material
+    IN THE CLAUDE-WORKFLOWS REPO, which scans that repo in place. Naming the
+    repo matters because this file is PROPAGATED: downstream, the bare test
+    path resolves to nothing, so a reader chasing the coverage finds an empty
+    reference and reasonably concludes there is none. Fourth scope-key surprise
+    on this one rule; the coverage is real, it just lives where the scan root
+    is real.

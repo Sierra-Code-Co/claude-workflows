@@ -1,0 +1,72 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "review-plan-v2"
+version = "0.3.0"
+description = "Multi-model code review harness and deterministic gate portfolio for the Sierra-Code-Co fleet"
+requires-python = ">=3.10"
+
+# Until 2026-08-14 this repo declared no dependencies anywhere: CI ran a bare
+# `pip install pytest`, and the package described itself as stdlib-only. That
+# held while the tool only shelled out to binaries, but the gate portfolio
+# (spec 003) needs to *parse* two things the stdlib cannot:
+#
+#   - PyYAML     the gate registry (gates.yml) and ast-grep rule files. The
+#                alternative was shelling to `yq` to read config this package
+#                owns, which trades a declared dependency for an undeclared one.
+#   - jsonschema the contract files under specs/003-gate-portfolio/contracts/.
+#                The registry validates against them at load (T008), so this is
+#                a runtime path, not a test-only one.
+#
+# Declaring them is also what lets `check_deps.py` report a missing Python
+# dependency the same fail-visible way it already reports a missing binary.
+dependencies = [
+  "PyYAML>=6.0",
+  "jsonschema>=4.20",
+]
+
+[project.optional-dependencies]
+dev = [
+  "pytest>=8.0",
+  # PINNED EXACTLY, not floored. ruff is a GATE (T005e), and a runner on a
+  # different version enforces a different rule set — local, CI and the
+  # container stop being the same gate without any of them going red. That is
+  # the shellcheck 0.9.0-vs-0.11.0 drift that went unnoticed until the first
+  # container build, and the reason every other analyzer here carries an exact
+  # pin. Unlike those four it is a Python package, so ONE declaration serves
+  # both consumers: CI and the Dockerfile each install `.[dev]`.
+  "ruff==0.15.5",
+]
+
+[project.scripts]
+review-plan-v2 = "review_plan_v2.__main__:main"
+
+[tool.setuptools]
+package-dir = { "" = "scripts" }
+
+[tool.setuptools.packages.find]
+where = ["scripts"]
+include = ["review_plan_v2*"]
+
+[tool.setuptools.package-data]
+# The gate-registry and finding-envelope schemas are read at RUNTIME, so they
+# must travel with the package. The authoritative copies live in
+# specs/003-gate-portfolio/contracts/, which .dockerignore excludes — reading
+# from there resolves on a dev laptop and raises inside the image, a failure
+# that only shows up in the environment nobody runs tests in.
+# tests/unit/test_schema_copies_match.py keeps the two copies byte-identical.
+"review_plan_v2.gates" = ["schemas/*.json"]
+
+[tool.pytest.ini_options]
+# 16 of 17 test files hand-rolled `sys.path.insert(0, .../scripts)` because
+# there was nowhere to declare this. Those lines are now redundant; they are
+# left in place for this commit (churning 16 files alongside a dependency
+# change would make the diff unreviewable) and removed in T005b.
+# "tests" is here so `support.*` imports without a hand-rolled
+# `sys.path.insert`. Ten integration modules do that today and each pays two
+# E402s for it; this is the root fix, and T005b removes the now-redundant
+# inserts. New files import cleanly from the top.
+pythonpath = ["scripts", "tests/proofs", "tests"]
+testpaths = ["tests"]

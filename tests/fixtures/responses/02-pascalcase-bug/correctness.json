@@ -1,0 +1,1 @@
+{"choices":[{"message":{"content":"[{\"file\":\"src/sdk.ts\",\"line\":3,\"line_end\":null,\"severity\":\"actionable\",\"category\":\"correctness\",\"message\":\"SDK string contract: code values are PascalCase ('UserCancelled'), not kebab-case ('user-cancelled'). This branch will never match.\"}]"}}],"usage":{"prompt_tokens":300,"completion_tokens":80}}

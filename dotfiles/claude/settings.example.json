@@ -1,0 +1,48 @@
+{
+  "_comment": "Template for ~/.claude/settings.json. Copy to ~/.claude/settings.json and customize per-machine. Do NOT commit your actual settings.json — gitignored. NOTE: PATs and MCP credentials added via `claude mcp add` live in ~/.claude.json (different file), which is also gitignored from your home dir.",
+  "enabledPlugins": {
+    "frontend-design@claude-plugins-official": true,
+    "swift-lsp@claude-plugins-official": true,
+    "vercel@claude-plugins-official": true
+  },
+  "effortLevel": "high",
+  "voiceEnabled": true,
+  "_permissions_comment": "Baseline allow/deny applies to all projects via user-scope cascade. Per-project .claude/settings.local.json only needs project-specific additions (MCP tool names, .specify/* scripts, etc.).",
+  "permissions": {
+    "allow": [
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
+      "WebSearch",
+      "WebFetch",
+      "Monitor",
+      "mcp__*__get_*",
+      "mcp__*__list_*",
+      "mcp__*__search_*",
+      "mcp__github__issue_read",
+      "mcp__github__pull_request_read",
+      "mcp__github__create_pull_request"
+    ],
+    "deny": [
+      "Bash(rm -rf:*)",
+      "Bash(rm -r:*)",
+      "Bash(rmdir:*)",
+      "Bash(git push --force:*)",
+      "Bash(git push -f:*)",
+      "Bash(git reset --hard:*)",
+      "Bash(git checkout -- :*)",
+      "Bash(git clean -f:*)",
+      "Bash(git branch -D:*)"
+    ]
+  },
+  "mcpServers": {
+    "sentry": {
+      "_comment": "Sentry MCP — replace org slug. Org-scoped covers all projects under the org.",
+      "type": "url",
+      "url": "https://mcp.sentry.dev/mcp/<your-sentry-org-slug>"
+    }
+  }
+}

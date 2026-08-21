@@ -1,0 +1,27 @@
+.git
+# The workflow file is re-included below: test_toolchain_declared.py compares
+# the ast-grep pin in it against the Dockerfile's, and a check that cannot run
+# in the container is a check that silently does not run there.
+.github/**
+!.github/workflows/tests.yml
+.pytest_cache
+**/__pycache__
+**/*.pyc
+.env
+.env.*
+!.env.example
+dotfiles
+experiments
+references
+decisions
+node_modules
+
+# specs/ is excluded, EXCEPT the contract schemas. The image's first self-test
+# run failed on test_contract_file_is_valid_json_schema, which reads the
+# authoritative contract — a test that passed on every dev laptop and could
+# never pass in the container. Making it skip when specs/ is absent was the
+# wrong fix: a drift check that silently does not run reports clean, which is
+# the whole defect class this repo is about. The contracts are ~5KB; ship them
+# so the check runs in every environment.
+specs/**
+!specs/003-gate-portfolio/contracts/**

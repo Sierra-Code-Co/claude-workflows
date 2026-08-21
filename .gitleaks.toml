@@ -1,0 +1,9 @@
+# gitleaks configuration for claude-workflows
+# Inherits all default rules; only adds allowlists for known-safe values.
+
+[allowlist]
+description = "Test fixture diffs and canned responses contain intentional fake credentials for testing the secret detector. They are not real keys."
+paths = [
+    '''tests/fixtures/04-secret-leak\.diff$''',
+    '''tests/fixtures/responses/.*''',
+]

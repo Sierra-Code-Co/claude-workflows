@@ -1,0 +1,44 @@
+# Secrets — NEVER commit these
+*.env
+*.env.local
+.env
+.env.*
+!.env.example
+
+# The actual settings.json may contain MCP credentials/URLs you don't want shared.
+# Only the .example version is committed.
+dotfiles/claude/settings.json
+
+# Memory files — these may contain personal notes you don't want pushed.
+# If you want to sync memory across machines, decide explicitly per-file.
+dotfiles/claude/memory/
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Python (review_plan_v2 module + tests)
+__pycache__/
+*.pyc
+*.pyo
+.pytest_cache/
+.mypy_cache/
+
+# review-plan-v2 runtime state lives outside the repo (~/.claude/review-plan-v2/)
+# — no in-repo gitignore needed. Per-test temp state is colocated with each test repo.
+
+# Claude Code's local state — not portable across machines
+.claude/cache/
+.claude/projects/
+.claude/shell-snapshots/
+.claude/todos/
+.claude/scheduled_tasks.lock
+.claude/scheduled_tasks/
+# Per ADR-0007 this repo doesn't need a per-project allowlist; user-scope
+# baseline cascades. Keep settings.local.json out of git so CR CLI and
+# git status stop re-flagging it.
+.claude/settings.local.json

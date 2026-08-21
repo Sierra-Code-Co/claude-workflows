@@ -1,0 +1,149 @@
+# Answers "did I get all the sites?" for the describeThrown sweep (mtg-cube-ai
+# #2071). Five review rounds argued about this question and were wrong four
+# times; this file answers it by enumeration in milliseconds.
+#
+# SCOPE IS POLICY, NOT PLUMBING. `files:` and `ignores:` below decide what the
+# rule claims, so they are covered by the fixture like any other constraint —
+# see rules/fixtures/raw-caught-to-logger/. The first real-world hit for this
+# rule was correct code in a file whose line 1 is `export const ssr = false`.
+id: raw-caught-to-logger
+language: typescript
+severity: error
+message: "raw caught value passed to a server logger; use describeThrown(e).errMessage"
+files:
+  - "**/src/lib/server/**/*.ts"
+  - "**/src/routes/api/**/*.ts"
+ignores:
+  # Tests deliberately construct raw throwables and log them.
+  - "**/*.test.ts"
+  # This repo's own fixtures contain seeded violations on purpose. Without this
+  # a real scan reports the proof material as findings. The fixture test copies
+  # the tree OUT to a temp dir before scanning, so this exclusion cannot hide
+  # the fixture from the check that validates the rule.
+  #
+  # `fixtures/**` — bare, NOT `**/fixtures/**` and NOT `**/rules/fixtures/**`.
+  #
+  # ast-grep resolves these globs RELATIVE TO THE RULE FILE'S DIRECTORY, not to
+  # the scan root, so from `rules/` this repo's proof tree is exactly
+  # `fixtures/…`. Measured 2026-08-14 against a tree holding one seeded violation
+  # at each shape:
+  #
+  #   pattern                | rules/fixtures | consumer .../server/fixtures | real code
+  #   -----------------------|----------------|------------------------------|----------
+  #   **/rules/fixtures/**   | REPORTED (bad) | reported                     | reported
+  #   **/fixtures/**         | excluded       | SUPPRESSED (bad)             | reported
+  #   fixtures/**            | excluded       | reported                     | reported
+  #
+  # Both wrong forms shipped, hours apart, in opposite directions. #30's matched
+  # nothing, so every scan reported 9 seeded violations as real findings. Its
+  # replacement over-matched: this rule ships fleet-wide, and `**/fixtures/**`
+  # silently skips ANY directory named `fixtures` in a consumer repo — a scan
+  # false negative in a rule about unlogged errors, which is worse than the noise
+  # it was fixing. Caught by review-plan-v2 on this branch.
+  #
+  # Cost of the bare form: `tests/fixtures/gold_set_corpus/` is no longer
+  # excluded. It holds no catch clauses, so the repo scan is still 0, and a future
+  # corpus file that adds one will SURFACE rather than be silently suppressed.
+  # That is the correct direction to fail.
+  #
+  # Fourth scope-key surprise on this one rule. Scope keys get tests, and the test
+  # is test_scope_keys_actually_exclude_proof_material IN THE CLAUDE-WORKFLOWS
+  # REPO. Named with its repo because this file is PROPAGATED, and downstream a
+  # bare test name resolves to nothing — review flagged the dangling reference
+  # on mtg-cube-ai#2120. The rule travels; its coverage does not.
+  - "fixtures/**"
+rule:
+  kind: identifier
+  pattern: $ERR
+  all:
+    # C1..C3: the identifier is a direct argument of a console call.
+    - inside:
+        kind: arguments
+        stopBy: neighbor
+        inside:
+          kind: call_expression
+          stopBy: neighbor
+          has:
+            field: function
+            # Anchored at BOTH ends on purpose. `^console\.` alone would also
+            # catch console.debug/trace/info, which are not the policy;
+            # `\.(error|warn|log)$` alone would catch every logger in the repo.
+            # Both near-misses are in the fixture.
+            regex: '^console\.(error|warn|log)$'
+    # C4..C5: and it is THE catch clause's binding, not merely some identifier
+    # that happens to sit inside a catch block. $ERR unifies across relations —
+    # that unification is the whole difference between this rule and one that
+    # also flags `modelId`, `idx`, and `toolCallId`.
+    - inside:
+        kind: catch_clause
+        stopBy: end
+        has:
+          field: parameter
+          pattern: $ERR
+    # C6: and NO function between here and that catch clause re-binds the name.
+    #
+    # $ERR unifies on TEXT, and ast-grep has no scope analysis, so without this
+    # a parameter that merely shares the name reads as the caught value:
+    #
+    #     try { a(); } catch (e) {
+    #       void ((e: unknown) => console.error('inner:', e));   // NOT the catch binding
+    #     }
+    #
+    # Measured on a fixture carrying one of each shadowing shape: the rule
+    # flagged ALL FOUR — arrow, function expression, method, and bare-parameter
+    # arrow. Found by CodeRabbit on the propagation PR, in a rule already
+    # registered as BLOCKING downstream, where a false positive blocks a push.
+    #
+    # `stopBy` IS THE LOAD-BEARING PART, not the `not`. With `stopBy: end` the
+    # search runs past the catch clause to the top of the file, so an OUTER
+    # function whose parameter happens to be named `e` suppresses a genuine
+    # violation inside the catch — trading a false positive for a false
+    # negative, which this rule's own header calls the worse direction. Bounded
+    # at the catch clause, that case still reports. Both directions are in the
+    # fixture, and the mutation that unbounds this loses exactly that case.
+    - not:
+        any:
+          # Parenthesised parameter lists: (e) => …, function (e) {…}, m(e) {…}
+          - inside:
+              stopBy:
+                kind: catch_clause
+              any:
+                - kind: arrow_function
+                - kind: function_expression
+                - kind: function_declaration
+                - kind: method_definition
+              has:
+                field: parameters
+                # THE BINDING, not "$ERR appears somewhere under parameters".
+                # `stopBy: end` over the whole parameter list reaches into
+                # DEFAULT-VALUE expressions, so
+                #
+                #     catch (e) { void ((value = e) => console.error('ctx:', e)); }
+                #
+                # excluded a real violation: the arrow binds `value`, and `e`
+                # there is the caught value being read, not a shadow. That is a
+                # FALSE NEGATIVE introduced by the fix for a false positive —
+                # the direction this rule's header calls the worse one — and it
+                # was caught by review on the propagation PR rather than here.
+                #
+                # Matching the parameter's `pattern` field also covers
+                # destructuring: `({ e }) => …` shadows and is excluded, while
+                # `({ other }) => …` still reports.
+                has:
+                  any:
+                    - kind: required_parameter
+                    - kind: optional_parameter
+                  stopBy: end
+                  has:
+                    field: pattern
+                    any:
+                      - pattern: $ERR
+                      - has: {pattern: $ERR, stopBy: end}
+          # `e => …` — one parameter, no parens, a different field entirely.
+          - inside:
+              stopBy:
+                kind: catch_clause
+              kind: arrow_function
+              has:
+                field: parameter
+                pattern: $ERR

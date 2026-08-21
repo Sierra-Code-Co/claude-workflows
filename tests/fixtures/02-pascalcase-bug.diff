@@ -1,0 +1,15 @@
+diff --git a/src/sdk.ts b/src/sdk.ts
+new file mode 100644
+index 0000000..a1b2c3d
+--- /dev/null
++++ b/src/sdk.ts
+@@ -0,0 +1,9 @@
++export function handleError(err: { code: string }) {
++  // BUG: SDK contract is 'UserCancelled' (PascalCase), not 'user-cancelled' (kebab)
++  if (err.code === 'user-cancelled') {
++    return 'cancelled';
++  }
++  if (err.code === 'time-out') {
++    return 'timeout';
++  }
++}

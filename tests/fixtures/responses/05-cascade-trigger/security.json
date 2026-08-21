@@ -1,0 +1,1 @@
+{"choices":[{"message":{"content":"[{\"file\":\"src/lib/auth/session.ts\",\"line\":4,\"line_end\":null,\"severity\":\"actionable\",\"category\":\"security\",\"message\":\"Session id is predictable (userId + timestamp) — attacker can guess. Use crypto.randomUUID() or a CSPRNG.\"}]"}}],"usage":{"prompt_tokens":300,"completion_tokens":80}}

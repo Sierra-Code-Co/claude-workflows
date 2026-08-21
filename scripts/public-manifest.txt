@@ -1,0 +1,38 @@
+# public-manifest.txt — the ONLY paths that sync to the public mirror
+# (Sierra-Code-Co/claude-workflows). Everything not listed here stays private.
+# See ADR-0010 and scripts/sync-public.sh. Directories end with '/'.
+#
+# Deliberately absent, and why:
+#   STATE.md                — machine/fleet inventory incl. client repo names
+#   CHANGELOG.md            — internal history, references private repos
+#   CLAUDE.md               — instructions for working in the internal repo
+#   specs/002-*, specs/003- — fleet rollout specs naming consulting clients
+#   .claude/                — skills mirror internal-speckit-template (already
+#                             public there; a third copy would drift)
+#   .specify/               — spec-kit framework machinery, same reason
+#   .github/workflows/check-speckit-update.yml — files maintenance issues
+#   scripts/public-denylist.txt — hard-excluded by sync-public.sh even though
+#                             scripts/ is listed: it enumerates the very names
+#                             it exists to keep private
+decisions/
+scripts/
+tests/
+dotfiles/
+rules/
+references/
+specs/001-review-plan-v2/
+experiments/
+gates.yml
+.review-plan-v2.yaml
+pyproject.toml
+uv.lock
+Dockerfile
+.dockerignore
+.gitleaks.toml
+.markdownlint.json
+.markdownlintignore
+.env.example
+.coderabbit.yaml
+.gitignore
+.github/workflows/tests.yml
+.github/workflows/gitleaks.yml

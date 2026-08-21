@@ -1,0 +1,191 @@
+name: tests
+# The review-plan-v2 test suite. Until 2026-08-13 this repo's only PR check was
+# gitleaks, so "green" meant "no secrets committed" and nothing more — the
+# suite ran solely on whichever laptop happened to run it by hand.
+#
+# That is the same defect the suite itself was just hardened against: a check
+# that reports to nobody is indistinguishable from no check. The tests that
+# pin the dead-cascade fix (payload shape, empty-content handling, redaction,
+# [DEAD-LEG] rendering, the Gemini route regex) protect nothing on a future PR
+# unless something runs them.
+#
+# Deliberately no `continue-on-error`. A warn-first check with no exit
+# condition is where checkers go to die; the baseline is green today, so it
+# enforces from day one.
+on:
+  pull_request:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+jobs:
+  pytest:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          # Matches the >= 3.10 floor asserted by check_deps.py.
+          python-version: '3.12'
+      - name: Install the package and its dev extras
+        # Was `pip install pytest` against a package that declared no
+        # dependencies anywhere. That held while this tool only shelled out to
+        # binaries; the gate portfolio needs to PARSE yaml rules and json-schema
+        # contracts, so the deps are now declared in pyproject.toml and CI
+        # installs the real thing rather than a guess at it.
+        run: python -m pip install --disable-pip-version-check -e ".[dev]"
+      # The structural-rule tests FAIL rather than skip when ast-grep is
+      # missing, because a completeness gate that silently does not run reports
+      # clean — the defect this portfolio exists to close. That makes the binary
+      # a hard CI dependency. Pinned to the same version as the Dockerfile: a
+      # skew between CI and the image is exactly how the shellcheck
+      # 0.9.0-vs-0.11.0 drift went unnoticed until the first container build.
+      - name: Install ast-grep (pinned; must match Dockerfile AST_GREP_VERSION)
+        env:
+          AST_GREP_VERSION: 0.45.1
+          # Must equal Dockerfile AST_GREP_SHA256_AMD64 — a test asserts it
+          # (T005d). The runner is x86_64, so this is the amd64 digest.
+          AST_GREP_SHA256: 76fb6555be6734fb5057dba8d2fb756430f374bb9e1af694cf1ce00e13238d63
+        run: |
+          curl -fsSL -o /tmp/ast-grep.zip \
+            "https://github.com/ast-grep/ast-grep/releases/download/${AST_GREP_VERSION}/app-x86_64-unknown-linux-gnu.zip"
+          # Verified BEFORE unpacking: `unzip` on an unverified archive has
+          # already written into /usr/local/bin by the time a later check could
+          # object. Same ordering as the Dockerfile, for the same reason.
+          echo "${AST_GREP_SHA256}  /tmp/ast-grep.zip" | sha256sum -c -
+          sudo unzip -q -o /tmp/ast-grep.zip -d /usr/local/bin
+          sudo chmod +x /usr/local/bin/ast-grep /usr/local/bin/sg
+          # Anchored on BOTH sides. A bare `*"$want"*` lets "0.45.10" satisfy a
+          # pin of "0.45.1"; right-anchoring alone lets "14.53.2" satisfy
+          # "4.53.2". The version must be delimited on each end by a character
+          # that cannot continue a version number. Keep in sync with the
+          # identical function in Dockerfile.
+          installed="$(ast-grep --version)"
+          case "$installed" in
+            "${AST_GREP_VERSION}") echo "ok  ast-grep ${AST_GREP_VERSION}" ;;
+            "${AST_GREP_VERSION}"[!0-9.]*) echo "ok  ast-grep ${AST_GREP_VERSION}" ;;
+            *[!0-9.]"${AST_GREP_VERSION}") echo "ok  ast-grep ${AST_GREP_VERSION}" ;;
+            *[!0-9.]"${AST_GREP_VERSION}"[!0-9.]*) echo "ok  ast-grep ${AST_GREP_VERSION}" ;;
+            *) echo "PIN DRIFT: expected ${AST_GREP_VERSION}, got: $installed" >&2; exit 1 ;;
+          esac
+
+      # ruff over the whole repo, not just the diff (T005e). The analyzer in
+      # the review tool is diff-scoped by design; this step is what keeps THIS
+      # repo's own baseline at zero, which is the precondition that let the gate
+      # be blocking from its first commit rather than advisory.
+      #
+      # No `continue-on-error`, for the reason this file's header already gives:
+      # the baseline is clean today, so it enforces from day one. ruff arrives
+      # via `.[dev]`, pinned exactly in pyproject — see
+      # tests/unit/test_toolchain_declared.py.
+      - name: Lint (ruff)
+        run: |
+          ruff --version
+          ruff check .
+
+      # gitleaks is a HARD dependency of the pytest job, not a nicety. Without
+      # it `tests/integration/test_static_analyzers.py` used to skip — including
+      # the test asserting that a diff containing a secret is never transmitted
+      # to an external LLM API. That is the strongest security claim this tool
+      # makes, and from the day the suite was written until 2026-08-15 CI never
+      # ran it once.
+      #
+      # And the skip was not merely a gap in coverage. MEASURED 2026-08-15 with
+      # gitleaks as the ONLY absent tool: the run exits 0 instead of halting,
+      # and the secret-bearing diff is sent to the LLM endpoint FOUR times. So
+      # in an environment without gitleaks the guarantee is not unverified — it
+      # is absent. A skip there reports nothing about a run that leaks.
+      #
+      # The separate `gitleaks` JOB below scans the repo for committed secrets.
+      # It shares no runner with this one, which is why installing it there did
+      # nothing for these tests.
+      #
+      # Pinned to the same version as the Dockerfile, enforced by
+      # test_toolchain_declared.py — a comment saying "keep in sync" is not a
+      # mechanism, and shellcheck already drifted 0.9.0-vs-0.11.0 that way.
+      - name: Install gitleaks (pinned; must match Dockerfile GITLEAKS_VERSION)
+        env:
+          GITLEAKS_VERSION: 8.30.1
+        run: |
+          curl -fsSL -o /tmp/gitleaks.tar.gz \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          sudo tar -xzf /tmp/gitleaks.tar.gz -C /usr/local/bin gitleaks
+          sudo chmod +x /usr/local/bin/gitleaks
+          # Anchored on BOTH sides, same as the ast-grep check above: a bare
+          # `*"$want"*` lets "8.30.10" satisfy a pin of "8.30.1", and
+          # right-anchoring alone lets "18.30.1" satisfy "8.30.1".
+          installed="$(gitleaks version)"
+          case "$installed" in
+            "${GITLEAKS_VERSION}") echo "ok  gitleaks ${GITLEAKS_VERSION}" ;;
+            "${GITLEAKS_VERSION}"[!0-9.]*) echo "ok  gitleaks ${GITLEAKS_VERSION}" ;;
+            *[!0-9.]"${GITLEAKS_VERSION}") echo "ok  gitleaks ${GITLEAKS_VERSION}" ;;
+            *[!0-9.]"${GITLEAKS_VERSION}"[!0-9.]*) echo "ok  gitleaks ${GITLEAKS_VERSION}" ;;
+            *) echo "PIN DRIFT: expected ${GITLEAKS_VERSION}, got: $installed" >&2; exit 1 ;;
+          esac
+
+      # markdownlint and actionlint were NEVER INSTALLED on this runner.
+      #
+      # Discovered by the failure proofs on their first CI run: two of the four
+      # analyzer gates went red with "not installed, so gate X was not proven at
+      # all". The analyzers were configured, documented, and listed in the
+      # portfolio — and on this runner their binaries were simply absent, so
+      # `StaticAnalyzer.run()` returned `skipped=True` with zero findings every
+      # time. Zero findings from a skipped analyzer is byte-identical to a clean
+      # result, which is why nothing ever noticed.
+      #
+      # That is the whole thesis of this phase arriving on schedule: the gates
+      # looked present and were not running. Installing them is the fix; the
+      # proof failing loudly is the mechanism that will keep them installed.
+      - name: Install markdownlint-cli (pinned)
+        env:
+          MARKDOWNLINT_VERSION: 0.48.0
+        run: |
+          npm install -g "markdownlint-cli@${MARKDOWNLINT_VERSION}"
+          installed="$(markdownlint --version)"
+          # Both-side anchored, same as gitleaks above: a bare substring match
+          # lets 0.48.01 satisfy a pin of 0.48.0, and right-anchoring alone lets
+          # 10.48.0 satisfy it.
+          case "$installed" in
+            "${MARKDOWNLINT_VERSION}") echo "ok  markdownlint ${MARKDOWNLINT_VERSION}" ;;
+            "${MARKDOWNLINT_VERSION}"[!0-9.]*) echo "ok  markdownlint ${MARKDOWNLINT_VERSION}" ;;
+            *[!0-9.]"${MARKDOWNLINT_VERSION}") echo "ok  markdownlint ${MARKDOWNLINT_VERSION}" ;;
+            *[!0-9.]"${MARKDOWNLINT_VERSION}"[!0-9.]*) echo "ok  markdownlint ${MARKDOWNLINT_VERSION}" ;;
+            *) echo "PIN DRIFT: expected ${MARKDOWNLINT_VERSION}, got: $installed" >&2; exit 1 ;;
+          esac
+
+      - name: Install actionlint (pinned)
+        env:
+          ACTIONLINT_VERSION: 1.7.12
+        run: |
+          curl -fsSL -o /tmp/actionlint.tar.gz \
+            "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+          sudo tar -xzf /tmp/actionlint.tar.gz -C /usr/local/bin actionlint
+          sudo chmod +x /usr/local/bin/actionlint
+          installed="$(actionlint --version | head -1)"
+          case "$installed" in
+            "${ACTIONLINT_VERSION}") echo "ok  actionlint ${ACTIONLINT_VERSION}" ;;
+            "${ACTIONLINT_VERSION}"[!0-9.]*) echo "ok  actionlint ${ACTIONLINT_VERSION}" ;;
+            *[!0-9.]"${ACTIONLINT_VERSION}") echo "ok  actionlint ${ACTIONLINT_VERSION}" ;;
+            *[!0-9.]"${ACTIONLINT_VERSION}"[!0-9.]*) echo "ok  actionlint ${ACTIONLINT_VERSION}" ;;
+            *) echo "PIN DRIFT: expected ${ACTIONLINT_VERSION}, got: $installed" >&2; exit 1 ;;
+          esac
+
+      - name: Run the suite
+        run: python -m pytest tests/ -q
+
+      # A separate step so "a gate could not be shown to fail" is reported as
+      # its own red X rather than buried in the pytest summary line.
+      - name: Run the failure proofs
+        env:
+          # CI holds no provider keys, so the reviewer-wave proof cannot make the
+          # live call it needs — and it deliberately will not pretend otherwise.
+          # Naming it here is an explicit statement that this run does NOT prove
+          # the reviewers still find a planted bug. The runner prints that in the
+          # summary of every green run, not only when something breaks.
+          #
+          # Per-proof on purpose. A blanket "allow unproven" flag would silently
+          # cover the next gate that stops working, which is the failure this
+          # whole suite exists to prevent. A second live gate must require a
+          # second, deliberate edit here.
+          RPV2_UNPROVEN_OK: reviewers
+        run: bash tests/proofs/run-all.sh

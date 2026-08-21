@@ -1,0 +1,132 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+
+# CodeRabbit configuration for claude-workflows
+# Personal workflow + ADR repo. Docs-heavy. Goal: catch real issues
+# (broken commands, factual errors, cross-doc inconsistency) and skip
+# prose nits that don't matter for personal docs.
+#
+# Workflow: run `coderabbit review --plain --base main` pre-push
+# (see ~/.claude/CLAUDE.md "Pre-push" section). PR-side review is
+# the safety net.
+
+language: 'en-US'
+early_access: false
+enable_free_tier: true
+
+reviews:
+  profile: 'assertive'
+  request_changes_workflow: false
+  high_level_summary: true
+  review_status: true
+  collapse_walkthrough: true
+  poem: false
+  sequence_diagrams: false
+  related_issues: true
+  related_prs: true
+  abort_on_close: true
+
+  path_filters:
+    - '!**/*.png'
+    - '!**/*.jpg'
+    - '!**/*.webp'
+    - '!**/*.gif'
+    - '!.claude/cache/**'
+    - '!.claude/projects/**'
+    - '!.claude/shell-snapshots/**'
+    - '!.claude/todos/**'
+    - '!references/**'
+
+  auto_review:
+    enabled: true
+    drafts: false
+    base_branches:
+      - main
+    auto_incremental_review: true
+    auto_pause_after_reviewed_commits: 3
+    ignore_title_keywords:
+      - 'WIP'
+      - 'DO NOT MERGE'
+
+  path_instructions:
+    - path: '**/*.md'
+      instructions: |
+        This is a personal workflow + ADR repository — docs only, no
+        application code. Only flag:
+        - Factual errors (wrong commands, broken syntax in code blocks)
+        - Broken links / dead references
+        - Cross-doc inconsistencies (e.g. CHANGELOG entry claims a
+          section exists in a file that doesn't have it; ADR index
+          missing an entry; STATE.md referencing files that don't
+          exist; outdated dates in metadata that should be ISO YYYY-MM-DD)
+        - Conflicting guidance between CLAUDE.md and other docs
+        - Wrong API/CLI syntax in command examples (e.g. `cr` vs
+          `coderabbit`, `gh pr merge --delete-branch` when it shouldn't)
+        SKIP: prose style, grammar quibbles, word choice, line length,
+        passive voice, "consider clarifying" rewrites, suggested
+        elaborations. The author values terse decisions over polished
+        prose.
+
+    - path: 'decisions/**/*.md'
+      instructions: |
+        ADRs (architecture decision records). Append-only by convention.
+        Don't suggest restructuring an existing ADR — superseding ADRs
+        replace prior ones (Status: superseded by NNNN). Flag if a new
+        ADR's index entry is missing from decisions/README.md or if
+        the file naming doesn't match NNNN-<title>.md format.
+
+    - path: 'STATE.md'
+      instructions: |
+        Living inventory. Flag if `Last updated:` isn't strict ISO
+        YYYY-MM-DD with no parenthetical commentary. Flag undecided
+        callouts / TODO-style notes — STATE.md should record decisions,
+        not punch lists. Cross-check that referenced files/paths exist.
+
+    - path: 'scripts/**/*.sh'
+      instructions: |
+        Bash propagation/sync scripts. Review for:
+        - `set -euo pipefail` discipline
+        - Quoting around expansions ($VAR vs "$VAR")
+        - Idempotency (these run repeatedly across machines)
+        - Destructive operations should require confirmation
+        - Don't suggest "consider adding tests" — these are personal
+          one-off scripts run interactively.
+
+    - path: 'dotfiles/claude/CLAUDE.md'
+      instructions: |
+        This is the global ~/.claude/CLAUDE.md (symlinked). Each
+        section is load-bearing instructions for Claude Code. Flag:
+        - Self-contradictory guidance across sections
+        - References to tools/commands that don't exist or have wrong
+          syntax (e.g. `cr` when binary is `coderabbit`)
+        - Instructions that conflict with documented ADRs in this repo
+        Don't suggest tone/voice rewrites — the directive style is
+        intentional.
+
+  tools:
+    gitleaks:
+      enabled: true
+    markdownlint:
+      enabled: true
+    actionlint:
+      enabled: true
+    shellcheck:
+      enabled: true
+
+  slop_detection:
+    enabled: false
+
+chat:
+  auto_reply: false
+
+knowledge_base:
+  opt_out: false
+  web_search:
+    enabled: true
+  code_guidelines:
+    enabled: true
+  learnings:
+    scope: auto
+  issues:
+    scope: auto
+  pull_requests:
+    scope: auto
