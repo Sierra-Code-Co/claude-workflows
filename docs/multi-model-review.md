@@ -52,7 +52,8 @@ brew install python@3.12 jq yq gitleaks markdownlint-cli actionlint shellcheck
 ln -s "$(pwd)/scripts/review-plan-v2.sh" ~/.local/bin/review-plan-v2
 
 # keys: DEEPSEEK_API_KEY required; OPENAI_API_KEY / GEMINI_API_KEY enable the cascade.
-# Put them in the target repo's .env or your shell env.
+# Put them in the target repo's .env or your shell env — and make sure .env is
+# in that repo's .gitignore BEFORE writing keys into it. Never commit .env.
 
 # then, before any push:
 review-plan-v2 --plain --base main

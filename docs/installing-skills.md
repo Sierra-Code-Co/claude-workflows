@@ -13,12 +13,13 @@ Installation is file-copying — there is no registry step. Copy the skill direc
 
 ```bash
 # install one skill from the template into the current project
-cp -R ~/dev/projects/internal-speckit-template/.claude/skills/review-plan .claude/skills/
+git clone https://github.com/Sierra-Code-Co/internal-speckit-template /tmp/speckit-template
+cp -R /tmp/speckit-template/.claude/skills/review-plan .claude/skills/
 ```
 
 ## Getting the full set: the template
 
-Rather than installing skills one at a time, new projects here start from [internal-speckit-template](https://github.com/Sierra-Code-Co/internal-speckit-template), which ships the complete kit: the `speckit-*` chain, the `/review-plan` gate, and the `/feature` orchestrator, plus the `.specify/` framework they depend on. Its README covers both a one-off bootstrap (`new-project.sh`) and a `newproject` shell function for creating template-derived repos daily.
+Rather than installing skills one at a time, new projects here start from [internal-speckit-template](https://github.com/Sierra-Code-Co/internal-speckit-template) (public, despite the name), which ships the complete kit: the `speckit-*` chain, the `/review-plan` gate, and the `/feature` orchestrator, plus the `.specify/` framework they depend on. Its README covers both a one-off bootstrap (`new-project.sh`) and a `newproject` shell function for creating template-derived repos daily.
 
 Note the dependency: the `speckit-*` skills read templates and scripts from `.specify/` — installing those skills without that directory gives you commands that can't find their machinery. Take the template wholesale, then delete what you don't want.
 

@@ -2,6 +2,10 @@
 # (Sierra-Code-Co/claude-workflows). Everything not listed here stays private.
 # See ADR-0010 and scripts/sync-public.sh. Directories end with '/'.
 #
+# One thing syncs OUTSIDE this allowlist: the public/ overlay (the mirror's
+# README.md, docs/, LICENSE). It is output-only content that exists solely to
+# be published, so sync-public.sh applies it as a separate step after staging.
+#
 # Deliberately absent, and why:
 #   STATE.md                — machine/fleet inventory incl. client repo names
 #   CHANGELOG.md            — internal history, references private repos
