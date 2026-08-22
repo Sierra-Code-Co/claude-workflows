@@ -48,6 +48,7 @@ How will I know this is working (or not)?
 | 0008 | [/review-plan v2: Python orchestrator + drop-in CR replacement](0008-review-plan-v2.md) | active |
 | 0009 | [Per-repo `.coderabbit.yaml` propagation; two-failure-mode diagnostic model](0009-cr-yaml-propagation-architecture.md) | active |
 | 0010 | [Public mirror via allowlist sync; internal repo stays private](0010-public-mirror.md) | active |
+| 0011 | [2026-08 insights-report adoptions: evidence rules, scope discipline, batched review, /ship extraction](0011-insights-adoptions.md) | active |
 
 ## How to use ADRs
 

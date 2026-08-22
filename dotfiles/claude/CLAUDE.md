@@ -73,6 +73,23 @@ draft PR. Don't ask between phases.
 - When the user reports something visible on their screen (e.g. PostHog events, UI state, console output), trust their direct observation over your inferred state — re-check your assumptions instead of arguing.
 - After refactors, explicitly verify cleanup of related artifacts (data directories, old configs, removed routes, stale env vars) rather than assuming.
 - For UI/frontend changes, exercise the feature in a browser before reporting done. Type checks and tests verify code correctness, not feature correctness.
+- **Anything with a web UI gets a browser walkthrough, unprompted.** When Claude in Chrome (browser automation) is available, use it to walk the affected flows as a user would — navigate, click, fill forms, read the rendered result. API-level smoke tests verify the API, not the feature; do not substitute them for UI verification and do not wait to be asked. (ADR-0011)
+- **Pipes mask exit codes.** Run gate commands (lint, format, tests) unpiped, or use `set -o pipefail` / check the first pipe stage's status (`${PIPESTATUS[0]}` in bash, `${pipestatus[1]}` in zsh) before claiming success. A `cmd | tail` that "passed" has already shipped a red CI run. (ADR-0011)
+- **Verification claims carry evidence.** "Verified" means you ran the check in this session: include the exact command/query and its raw output (or link the CI run). If you didn't run it, say "NOT VERIFIED" — never infer. (ADR-0011)
+
+## Scope Discipline
+
+- Make the minimum change that satisfies the request. If the ask is to remove or strip something, remove it — do not replace it with a more elaborate alternative. (ADR-0011)
+- If you believe additional machinery is genuinely needed, propose it in one sentence and wait; don't write it speculatively. (ADR-0011)
+- Never re-raise a decision the user has already declined. (ADR-0011)
+
+## Prose style (personal and client-facing drafts)
+
+For letters, emails, client documents, and similar personal/client prose (NOT engineering artifacts like PR bodies or ADRs): no em dashes, no rhetorical triads, no "it's not X, it's Y" constructions, no AI-sounding flourishes, no closing summary paragraph. Plain declarative sentences. Quote sources verbatim with a file/line reference — if you can't cite it, don't quote it. (ADR-0011)
+
+## Editing files
+
+Use the Edit tool for interactive file modification. Ad-hoc `perl -pi` / `sed -i` stream edits on source files are forbidden — they have mangled import aliases and clobbered test files. Scripted stream edits are acceptable only inside committed, tested scripts that verify their end state and fail loudly (e.g. the template's drift re-apply). Before overwriting an existing path with Write, Read it first — creating a genuinely new file needs no prior read. (ADR-0011)
 
 ## Prefer MCP servers over CLI equivalents
 
@@ -122,3 +139,5 @@ Default flow:
 7. After merge: `git checkout main && git pull` (or whichever base branch), report the merge SHA.
 
 **Round-count signal:** if you find yourself on PR-side round 3+, something's off — most likely the pre-push CLI wasn't run, or the repo's `.coderabbit.yaml` differs from local CLI defaults. Surface this to the user before grinding through more rounds.
+
+**Batch the review round.** When addressing CR findings, first enumerate EVERY unresolved comment in a table (comment / real bug yes-no / planned fix), then fix all the real ones in ONE commit — never fix-and-push per finding. Before pushing the batch, re-verify the behaviors fixed in earlier rounds of the same PR so a hardening pass doesn't regress them (this exact failure has happened: a round-3 fix reintroduced a parsing bug that cost a follow-up PR). (ADR-0011)
