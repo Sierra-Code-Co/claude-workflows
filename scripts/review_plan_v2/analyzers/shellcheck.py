@@ -6,7 +6,6 @@ import json
 from ..types import FileChange, Finding
 from .base import AnalyzerOutputError, StaticAnalyzer
 
-
 _LEVEL_MAP = {
     "error": ("actionable", "bug"),
     "warning": ("nit", "style"),

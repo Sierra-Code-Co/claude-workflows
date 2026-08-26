@@ -16,7 +16,6 @@ import pathlib
 import re
 
 import pytest
-
 from review_plan_v2.gates import registry
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]

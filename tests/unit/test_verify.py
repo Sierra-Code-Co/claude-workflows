@@ -19,7 +19,6 @@ import shutil
 import subprocess
 
 import pytest
-
 from review_plan_v2.verification.classify import (
     CONFIRMED,
     REFUTED,

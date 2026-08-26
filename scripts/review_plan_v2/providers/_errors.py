@@ -59,7 +59,8 @@ _REDACTIONS: tuple[tuple[re.Pattern[str], str], ...] = (
     # Backstop for key formats not yet invented. Deliberately narrow: 32+ chars
     # mixing letters AND digits, no underscores. The obvious `[A-Za-z0-9_-]{32,}`
     # is too greedy — it eats long snake_case symbols (a test name like
-    # `test_cascade_invokes_openai_and_google_on_high_risk` is 50 chars) and
+    # `test_cascade_invokes_a_leg_other_than_the_broad_provider_on_high_risk`
+    # is 69 chars) and
     # turns the diagnostic into `***`, which defeats the point of keeping the
     # body at all. Requiring a digit and banning `_` keeps identifiers readable
     # while still catching opaque credential-shaped runs. A git SHA matches and

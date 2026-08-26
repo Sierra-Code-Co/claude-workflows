@@ -7,9 +7,8 @@ import shutil
 import subprocess
 import sys
 import tempfile
-from pathlib import Path
-
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from ..paths import contained
 from ..types import FileChange, Finding

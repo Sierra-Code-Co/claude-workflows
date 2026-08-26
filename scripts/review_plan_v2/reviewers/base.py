@@ -10,7 +10,6 @@ from pathlib import Path
 from ..providers._errors import is_blank
 from ..types import CallResult, ChangeManifest, FileChange, Finding
 
-
 PROMPT_DIR = Path(__file__).parent.parent / "prompts"
 
 

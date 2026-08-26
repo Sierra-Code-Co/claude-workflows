@@ -10,10 +10,20 @@ Fixture file lookup order (per request):
   1. {fixture}/{provider}-{reviewer}.json   (most specific)
   2. {fixture}/{reviewer}.json              (provider-agnostic)
   3. {fixture}/{provider}.json              (reviewer-agnostic)
-  4. provider-shaped empty `[]` payload     (fallback)
+  4. {fixture}/any.json                     (provider- AND reviewer-agnostic)
+  5. provider-shaped empty `[]` payload     (fallback)
 
-The fixture JSON must already be in the provider's response shape (DeepSeek/OpenAI:
-choices[].message.content; Anthropic: content[].text; Google: candidates[].content.parts[].text).
+Prefer tier 4 (`any.json`) for a fixture that just needs *some* finding to come
+back. Tier 3 names a provider, and the miss is SILENT: when the broad-pass
+default moved off deepseek, every `deepseek.json` stopped matching, the server
+fell through to the empty payload, and five round-memory tests failed with "no
+findings" — which reads as a bug in finding suppression, not a stale filename.
+Reserve tier 3 for tests that are genuinely about one provider's wire shape.
+
+Fixtures may be authored in ANY provider's response shape; `_extract_content`
+pulls the findings string out and `_wrap_findings_for_provider` re-wraps it for
+whoever asked (DeepSeek/OpenAI: choices[].message.content; Anthropic:
+content[].text; Google: candidates[].content.parts[].text).
 """
 from __future__ import annotations
 
@@ -22,7 +32,6 @@ import re
 import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-
 
 FIXTURES_DIR = Path(__file__).parent.parent / "fixtures" / "responses"
 
@@ -83,6 +92,118 @@ def get_request_bodies() -> list[str]:
 def _record_request_body(body_raw: bytes) -> None:
     with _bodies_lock:
         _request_bodies.append(body_raw.decode("utf-8", errors="replace"))
+
+
+def request_prompts(raw: str) -> tuple[str, str] | None:
+    """(system_prompt, user_prompt) from a recorded REQUEST body, any provider shape.
+
+    Returns None if `raw` is not JSON or carries no recognisable prompt, so a caller
+    can skip non-prompt traffic without distinguishing it from a parse failure.
+
+    This exists because the request shapes differ and a test that hardcodes one is a
+    test that stops asserting when the broad-pass default moves. test_context_delivery
+    read `json.loads(raw)["messages"]` — the DeepSeek/OpenAI chat shape. Google sends
+    `contents` and `system_instruction`, so `.get("messages")` returned None for every
+    body, every prompt list came back empty, and three assertions about whether context
+    reaches the provider silently stopped being about anything. They then failed on the
+    `assertTrue(prompts)` guard, which reads as "context delivery is broken" rather than
+    "the test cannot see the request". Context delivery was fine throughout.
+
+    Note that is the SAME defect the response-side `any.json` tier fixed in the same
+    commit, on the other side of the wire: a fixture named after one provider stopped
+    matching, and the miss was silent. Both directions needed it; only one got it.
+
+    The four shapes:
+      deepseek, openai   messages[] with role system + role user
+      anthropic          top-level `system`, messages[] with role user only
+      google             system_instruction.parts[].text, contents[].parts[].text
+    """
+    try:
+        body = json.loads(raw)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(body, dict):
+        return None
+
+    # Google. `system_instruction` is what google.py sends; the REST API also accepts
+    # the camelCase spelling, so accept both rather than pinning today's choice.
+    if "contents" in body:
+        def _parts(node) -> str:
+            """A `contents`/`system_instruction` entry's text, across part shapes.
+
+            `isinstance(p.get("text"), str)`, matching `_text` below, not a bare
+            `p.get("text", "")`. The default only covers a MISSING key; a part
+            that carries `"text": None`, or an `inline_data`/`function_call` part
+            whose `text` is a dict, returns a non-str and `"\\n".join` raises
+            TypeError inside the fixture server's request handler. The chat-shape
+            branch already guarded this and the google branch did not, which is
+            the same defect this function exists to remove: a parser keyed to one
+            provider's happy-path shape.
+            """
+            if not isinstance(node, dict):
+                return ""
+            return "\n".join(
+                p.get("text", "") for p in node.get("parts") or []
+                if isinstance(p, dict) and isinstance(p.get("text"), str)
+            )
+        system = _parts(body.get("system_instruction") or body.get("systemInstruction"))
+        # Filter by role, exactly as the chat-shape branch below does. This joined
+        # EVERY `contents` entry regardless of role, while the chat branch takes
+        # `role == "user"` only — so the same conversation read through the two
+        # branches gave different answers. google.py sends a single `role: "user"`
+        # entry today, so nothing is currently misread; the asymmetry matters if a
+        # multi-turn body ever arrives (round memory is the obvious source), because
+        # the model's own prior output would be folded into the "user" prompt and an
+        # assertion looking for a path in the user half could be satisfied by the
+        # model having mentioned it. `role` absent counts as user: a single-turn
+        # body that omits it is still a prompt, and dropping it would empty the half.
+        user = "\n".join(
+            _parts(c) for c in body.get("contents") or []
+            if isinstance(c, dict) and c.get("role", "user") == "user"
+        )
+        return (system, user) if (system or user) else None
+
+    messages = body.get("messages")
+    if not isinstance(messages, list):
+        return None
+
+    def _text(content) -> str:
+        """A message's text, whether `content` is a string or a list of blocks.
+
+        Both Anthropic and OpenAI accept `content` as a list of typed blocks
+        (`[{"type": "text", "text": ...}]`) as well as a bare string, and
+        Anthropic's top-level `system` takes the same two shapes. The providers in
+        this repo all send strings today — test_request_prompt_extraction proves
+        that by capturing their real payloads — so this is not a live bug. It is
+        here because of what the failure would look like if one switched: the
+        string-only version returned "" for every block-list message, so the
+        prompt lists came back empty, and the three assertions in
+        test_context_delivery would fail on their `assertTrue(prompts)` guard
+        reading "context delivery is broken". That is the exact misdiagnosis this
+        whole function was written to remove — a fixture named for one provider
+        and a parser keyed to one wire format are the same defect, and so is a
+        parser keyed to one spelling of a field within the right format.
+        """
+        if isinstance(content, str):
+            return content
+        if isinstance(content, list):
+            return "\n".join(
+                b.get("text", "") for b in content
+                if isinstance(b, dict) and isinstance(b.get("text"), str)
+            )
+        return ""
+
+    def _joined(role: str) -> str:
+        return "\n".join(
+            _text(m.get("content")) for m in messages
+            if isinstance(m, dict) and m.get("role") == role
+        )
+
+    # Anthropic carries the system prompt out of band; chat-shape providers carry it
+    # as a message. Concatenating both covers either without a provider branch.
+    system = "\n".join(p for p in (_text(body.get("system")), _joined("system")) if p)
+    user = _joined("user")
+    return (system, user) if (system or user) else None
 
 
 def _empty_payload(provider: str) -> dict:
@@ -243,6 +364,10 @@ class _Handler(BaseHTTPRequestHandler):
             FIXTURES_DIR / fixture / f"{provider}-{reviewer}.json",
             FIXTURES_DIR / fixture / f"{reviewer}.json",
             FIXTURES_DIR / fixture / f"{provider}.json",
+            # Provider- and reviewer-agnostic. Last so the specific tiers still
+            # win, but present so a fixture need not be named after whichever
+            # provider happens to be the current broad-pass default.
+            FIXTURES_DIR / fixture / "any.json",
         ]
         payload = None
         for c in candidates:

@@ -11,7 +11,6 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-
 from review_plan_v2.aggregator import aggregate, verify_findings
 from review_plan_v2.output_format import drop_refuted, render_plain
 from review_plan_v2.types import Finding

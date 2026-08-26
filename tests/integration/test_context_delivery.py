@@ -17,15 +17,14 @@ addition has no outside-the-window for a definition to hide in.
 """
 from __future__ import annotations
 
-import json
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
 from support import fixture_server as fs
 from support.fixture_server import FixtureServer
 from support.runner import cleanup_repo, run_v2
-
 
 DESCRIBE_THROWN = """\
 export interface ThrownDescription {
@@ -133,17 +132,24 @@ class ContextDeliveryTests(unittest.TestCase):
         feature made the old style of matching ambiguous, which is a nice
         demonstration that adding context to a prompt changes what a test that
         greps the prompt is actually measuring.
+
+        Prompt extraction is delegated to fs.request_prompts rather than reading
+        `["messages"]` inline, because the request shape is the broad-pass provider's
+        and that provider is configurable. The inline version understood only the
+        DeepSeek/OpenAI chat shape, so when the default moved to google every body
+        parsed to no prompts at all and three of the assertions below stopped
+        asserting anything about context — they failed on their own `assertTrue(
+        prompts)` guard, which reads as "context delivery is broken" rather than
+        "this method cannot see the request".
         """
         out = []
         for raw in self.bodies:
-            try:
-                messages = json.loads(raw).get("messages") or []
-            except json.JSONDecodeError:
+            parsed = fs.request_prompts(raw)
+            if parsed is None:
                 continue
-            system = "\n".join(m.get("content", "") for m in messages if m.get("role") == "system")
+            system, user = parsed
             if reviewer is not None and f"**{reviewer}** code reviewer" not in system:
                 continue
-            user = "\n".join(m.get("content", "") for m in messages if m.get("role") == "user")
             if f"[File: {path} |" in user:
                 out.append(user)
         return out

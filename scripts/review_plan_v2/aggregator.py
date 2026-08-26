@@ -17,7 +17,6 @@ from .types import Finding, PathInstruction
 from .verification.classify import EnvelopeError, claim_from_dict
 from .verification.verify import verify_claim
 
-
 SOFT_CATEGORIES = {"style", "prose", "docs", "nit"}
 HARD_CATEGORIES = {"security", "correctness", "bug", "secrets"}
 SUPPRESSION_KEYWORDS = ("skip", "ignore", "do not flag", "not actionable")

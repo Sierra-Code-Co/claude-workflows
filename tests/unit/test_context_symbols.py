@@ -18,9 +18,7 @@ recall never produces.
 from __future__ import annotations
 
 import pytest
-
 from review_plan_v2.context import symbols
-
 
 TS_SOURCE = """\
 // A file shaped like the one G6 was raised against.

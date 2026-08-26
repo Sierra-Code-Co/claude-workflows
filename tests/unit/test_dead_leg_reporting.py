@@ -8,9 +8,9 @@ exactly what T005i was — a test present in the tree and absent from the run.
 """
 from __future__ import annotations
 
-
 from review_plan_v2.orchestrator import all_failed_message
 from review_plan_v2.output_format import render_plain
+
 
 def _summary(**over):
     entry = {"provider": "openai", "calls": 2, "starved": 0,

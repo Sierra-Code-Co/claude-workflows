@@ -25,7 +25,6 @@ from ..telemetry import log_call
 from ..types import CallResult
 from ._errors import is_blank, redact, summarize_error_body
 
-
 DEFAULT_BASE = "https://api.anthropic.com"
 DEFAULT_MODEL = "claude-sonnet-4-6"
 TIMEOUT_SEC = 30.0

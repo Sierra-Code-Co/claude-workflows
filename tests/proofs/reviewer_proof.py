@@ -30,13 +30,13 @@ money, which is why the UNPROVEN protocol below exists rather than a skip.
 """
 from __future__ import annotations
 
-import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "scripts"))
 
+from review_plan_v2.providers import registry  # noqa: E402
 from review_plan_v2.types import FileChange  # noqa: E402
 
 FIXTURES = REPO_ROOT / "tests" / "fixtures"
@@ -63,10 +63,28 @@ def _change(path: str, diff_text: str, language: str | None) -> FileChange:
 
 
 def main() -> int:
-    if not os.environ.get("DEEPSEEK_API_KEY"):
+    # The key the reviewer WILL use, asked of the registry.
+    #
+    # This read `os.environ.get("DEEPSEEK_API_KEY")`, hardcoded, and that stopped
+    # being the right question when DeepSeek was removed from the tool: nothing
+    # reads that variable any more, and `security.make()` below resolves its
+    # provider from `registry.DEFAULT_BROAD`. So the gate asked for a key that
+    # cannot enable anything and returned UNPROVEN on a machine where the real
+    # key was present and the call would have succeeded — permanently
+    # unpassable, and reporting the one wave that needs a live call as unproven
+    # is how a blind-reviewer regression gets through. Exactly the fail-silent
+    # shape the rest of this branch is about, so it is fixed here rather than
+    # left for the provider it names to be noticed as dead.
+    #
+    # Derived, not restated: `make()` takes the default from the registry for the
+    # documented reason that four copies of a literal default is how the DeepSeek
+    # one outlived the decision to drop it. A second copy here would recreate that.
+    tag = registry.DEFAULT_BROAD
+    if not registry.has_key(tag):
         print(
-            "UNPROVEN: the reviewer wave was not exercised — DEEPSEEK_API_KEY is "
-            "not set.\n"
+            f"UNPROVEN: the reviewer wave was not exercised — no API key for the "
+            f"default\n"
+            f"          broad provider: {registry.missing_key_hint(tag)}.\n"
             "          This gate cannot be proven offline: replaying recorded "
             "responses would\n"
             "          have sailed straight past the reasoning_effort=none "
@@ -92,10 +110,36 @@ def main() -> int:
     # never completed (UNPROVEN — rate limit, network, revoked key), or it
     # worked. Letting an exception escape collapses the middle case into a
     # crash, and a crashing proof gets muted long before anyone diagnoses it.
+    #
+    # A BUG IN THIS FILE IS NOT AN UNPROVEN CALL, and `except Exception` could not
+    # tell them apart. A NameError or a TypeError in the two lines below — a rename
+    # not carried through, a signature that moved — printed "the reviewer call did
+    # not complete" and returned UNPROVEN, which reads as "rate limit, try later"
+    # and gets muted. The proof would then be permanently unpassable for a reason
+    # that has nothing to do with the regression it guards, which is exactly how
+    # its DEEPSEEK_API_KEY gate stayed dead. Programming errors re-raise and crash
+    # loudly; only the failures the UNPROVEN verdict is ABOUT are swallowed.
+    # Read the fixtures BEFORE the try, so a missing or unreadable fixture cannot
+    # be reported as a provider failure. Both reads used to sit inside it, and a
+    # FileNotFoundError from a moved fixture landed in `except Exception` and
+    # printed "the reviewer call did not complete" — no call had been made at all.
+    # That reads as "rate limit, try later" and gets muted, which is the same way
+    # this proof's DEEPSEEK_API_KEY gate stayed dead, and it is what the paragraph
+    # above means by A BUG IN THIS FILE IS NOT AN UNPROVEN CALL.
+    #
+    # Two reviewers proposed adding OSError to the re-raise tuple instead. Do not:
+    # urllib.error.URLError SUBCLASSES OSError, so every genuine network failure —
+    # the exact case the UNPROVEN verdict exists for — would re-raise and crash the
+    # proof. Hoisting the reads out is what separates the two without widening the
+    # tuple; nothing left in the try is anything but the call.
+    planted_src = PLANTED.read_text()
+    clean_src = CLEAN.read_text()
     try:
-        planted = reviewer.run(_change("web/src/lib/server/db.ts", PLANTED.read_text(), "ts"))
-        clean = reviewer.run(_change("web/src/lib/server/ok.ts", CLEAN.read_text(), "ts"))
-    except Exception as exc:  # noqa: BLE001 - any provider failure means "not proven"
+        planted = reviewer.run(_change("web/src/lib/server/db.ts", planted_src, "ts"))
+        clean = reviewer.run(_change("web/src/lib/server/ok.ts", clean_src, "ts"))
+    except (NameError, TypeError, AttributeError, ImportError, IndexError, KeyError):
+        raise
+    except Exception as exc:
         print(
             f"UNPROVEN: the reviewer call did not complete, so the wave was "
             f"neither shown to fail nor shown to work: "

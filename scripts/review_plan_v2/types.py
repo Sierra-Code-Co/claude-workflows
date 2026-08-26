@@ -61,6 +61,20 @@ class HighRiskPath:
     reason: str = ""
 
 
+def _default_broad() -> str:
+    """registry.DEFAULT_BROAD, imported lazily to break a cycle.
+
+    types -> providers.registry -> providers.google -> types (for CallResult).
+    A module-level import here would be circular, so this resolves at RunConfig()
+    construction time, by which point every module is loaded. The indirection is
+    worth it: the alternative is a literal default that has to be remembered
+    whenever the provider set changes, which is the bug this replaced.
+    """
+    from .providers import registry
+
+    return registry.DEFAULT_BROAD
+
+
 @dataclass
 class RunConfig:
     base: str | None = None
@@ -75,6 +89,35 @@ class RunConfig:
     dedup_window: int = 5
     no_static_analyzers: bool = False
     no_cascade: bool = False
+    #: Provider tag for the BROAD pass — the four reviewers that see every file.
+    #: Was hardcoded to deepseek in four factories and three orchestrator dicts.
+    #: It is configurable because "which vendors may see this code" is a property
+    #: of the repository, not of this tool: an employer repo under a data-egress
+    #: policy needs a different answer than a personal one, and forking four
+    #: reviewer modules to express that is how the two copies drift apart.
+    #: Precedence: REVIEW_PLAN_V2_BROAD_PROVIDER env > .review-plan-v2.yaml
+    #: `broad_provider` > this default. Validated against
+    #: providers.registry.REVIEW_CAPABLE at load, not at call time, so a typo is
+    #: a config error rather than four rounds of `auth (HTTP no-response)`.
+    #:
+    #: The default is NOT a literal here. It was `"deepseek"`, and the field was
+    #: added precisely so employer repos could opt out — but a default is what
+    #: applies when config loading degrades, and the YAML loader returns early on
+    #: a machine with no `yq`. So the opt-out silently did not apply on exactly
+    #: the machines least likely to notice. DeepSeek is now refused outright and
+    #: the default lives in one place.
+    broad_provider: str = field(default_factory=lambda: _default_broad())
+    #: Display label for WHERE broad_provider came from, set by
+    #: config._apply_broad_provider and printed on the `broad pass:` line.
+    #:
+    #: Exists because a reviewer keeps raising, correctly, that this setting can
+    #: come from a file in the branch under review and decides where the diff of
+    #: every changed file is sent. The bound on that is documented in
+    #: orchestrator.py — an out-of-repo allowlist, a required key, and env
+    #: precedence — and one of those three is only usable if the operator can
+    #: SEE which origin won. `[default]` alone could not distinguish "nobody
+    #: chose this" from "the reviewed branch chose this and happens to agree".
+    broad_provider_source: str = "default"
     # Escape hatch for the verification stage. Its existence is what makes the
     # "[VERIFIED-OUT] … re-run with --no-verify to see them" line honest: a
     # dropped finding a developer cannot get back is a dropped finding they have

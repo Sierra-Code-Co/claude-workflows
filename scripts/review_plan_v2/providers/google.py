@@ -15,6 +15,7 @@ API key from GEMINI_API_KEY (matches the companion-ai eval harness convention).
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -24,9 +25,13 @@ import urllib.request
 
 from ..telemetry import log_call
 from ..types import CallResult
-from ._budget import MAX_CALL_SEC, TIMEOUT_SEC, budget_fields, env_float, max_tokens as resolve_max_tokens
+from ._budget import (
+    RETRY_SLEEPS,
+    budget_fields,
+    resolve_call_budget,
+)
+from ._budget import max_tokens as resolve_max_tokens
 from ._errors import is_blank, redact, summarize_error_body
-
 
 DEFAULT_BASE = "https://generativelanguage.googleapis.com"
 # gemini-2.5-pro still resolves, but 3.1-pro is the current frontier tier.
@@ -36,7 +41,9 @@ DEFAULT_BASE = "https://generativelanguage.googleapis.com"
 # the wall-clock budget now scales with queued work. Override per-run with
 # REVIEW_PLAN_V2_GOOGLE_MODEL if the latency bites.
 DEFAULT_MODEL = "gemini-3.1-pro-preview"
-RETRY_SLEEPS = (1.0, 4.0)
+# RETRY_SLEEPS is imported from _budget, not defined here: MAX_CALL_SEC is derived
+# from it, so a local copy would silently change how many retries this provider
+# can afford without changing the budget that pays for them.
 ALLOWED_SCHEMES = ("http", "https")
 
 
@@ -52,6 +59,26 @@ def _classify(status: int | None, exc: Exception | None) -> tuple[str | None, bo
         if isinstance(exc, TimeoutError):
             return "transient", True
         if isinstance(exc, urllib.error.URLError):
+            return "transient", True
+        # A dropped or reset connection is the textbook retryable fault, and
+        # neither shape subclasses URLError, so both fell through to
+        # non-retryable "unknown" and killed the whole reviewer task.
+        #
+        # This exact fix was made in deepseek.py — the one provider that can no
+        # longer run — and never ported to the two that can. The 2026-08-25
+        # pre-push run on this branch lost 1 of 394 reviewer tasks to
+        # `unknown (HTTP no-response) — Remote end closed connection without
+        # response` and reported the whole review INCOMPLETE with exit 2, on one
+        # dropped socket out of 394 that a single retry would have covered. It
+        # also explains the shape of the 8 `unknown` kills at 180.1-180.4s in the
+        # telemetry log that I could not reproduce: a server-side disconnect,
+        # classified as a hard fault, retried never.
+        #
+        # HTTPException as well as ConnectionError: RemoteDisconnected inherits
+        # from BOTH (ConnectionResetError and BadStatusLine), but IncompleteRead
+        # is HTTPException only, so ConnectionError alone would miss a truncated
+        # response body.
+        if isinstance(exc, (ConnectionError, http.client.HTTPException)):
             return "transient", True
         return "unknown", False
     if status is None:
@@ -91,12 +118,13 @@ def call(system_prompt: str, user_prompt: str, model: str | None = None,
         # would be read before the override existed and silently ignored.
         max_tokens = resolve_max_tokens()
 
-    if timeout is None:
-        timeout = env_float("REVIEW_PLAN_V2_GOOGLE_TIMEOUT", TIMEOUT_SEC)
-    max_call_sec = env_float("REVIEW_PLAN_V2_GOOGLE_MAX_CALL", MAX_CALL_SEC)
-    # A budget checked only before retries is not a budget: with
-    # REVIEW_PLAN_V2_GOOGLE_TIMEOUT above MAX_CALL, attempt 0 alone overruns it.
-    timeout = min(timeout, max_call_sec)
+    # Resolved together, not one env var each. Reading them independently left the
+    # ceiling at its import-time value when only the timeout was overridden, and
+    # the clamp then cut the timeout back to it — buying zero retries at
+    # REVIEW_PLAN_V2_GOOGLE_TIMEOUT=900 and three attempts at 180. See
+    # _budget.resolve_call_budget for the measured numbers.
+    timeout, max_call_sec = resolve_call_budget(
+        "REVIEW_PLAN_V2_GOOGLE_TIMEOUT", "REVIEW_PLAN_V2_GOOGLE_MAX_CALL", timeout)
 
     if model is None:
         model = os.environ.get("REVIEW_PLAN_V2_GOOGLE_MODEL", DEFAULT_MODEL)
@@ -180,6 +208,7 @@ def call(system_prompt: str, user_prompt: str, model: str | None = None,
                         "output_tokens": int(usage.get("candidatesTokenCount", 0)),
                         **budget_fields(int(usage.get("candidatesTokenCount", 0)), max_tokens, reviewer),
                         "latency_ms": int((time.monotonic() - started) * 1000),
+                        "timeout_sec": timeout, "max_call_sec": max_call_sec,
                         "status_code": status, "error_kind": None, "retry_count": retry_count,
                     })
                     return CallResult(
@@ -202,16 +231,40 @@ def call(system_prompt: str, user_prompt: str, model: str | None = None,
             last_detail = summarize_error_body(raw)
             if not retryable:
                 break
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # http.client.HTTPException is in the tuple because IncompleteRead — a
+        # response body that stops mid-stream — is HTTPException and NOT OSError,
+        # so it escaped this handler entirely and propagated out of call() as an
+        # uncaught exception. Classifying it as retryable without catching it here
+        # would have been a fix that does nothing, which is the shape of half the
+        # defects on this branch. RemoteDisconnected was already caught (it is a
+        # ConnectionResetError as well), just classified wrong.
+        except (urllib.error.URLError, TimeoutError, OSError,
+                http.client.HTTPException) as e:
             last_err_kind, retryable = _classify(None, e)
             last_detail = redact(str(e) or type(e).__name__)
             if not retryable:
                 break
 
+    # The failure row carries the budgets too. It did not, and the ONE class of row
+    # where the ceiling is the likely cause was the class that recorded no ceiling.
+    #
+    # `max_tokens` by hand rather than `**budget_fields(0, max_tokens, reviewer)`,
+    # deliberately. Four review gates have asked for the helper here, on the
+    # reasonable-looking grounds that the success row uses it and the two rows
+    # should share a schema. The helper's other field is `near_budget`, and on a
+    # failure it is not merely False but UNKNOWABLE: completion_tokens is 0 because
+    # the call produced nothing, not because it used nothing. A call killed at the
+    # wall may well have been about to overrun its token budget, so writing
+    # `near_budget: false` onto a failure row would be a checkable-looking claim
+    # that was never checked — the defect this branch is almost entirely about,
+    # committed in the name of schema tidiness. The asymmetry is the honest record,
+    # and tests/unit/test_failure_row_schema.py asserts it rather than leaving the
+    # next reviewer to ask a fifth time.
     log_call({
         "provider": "google", "model": model, "reviewer": reviewer,
-        "input_tokens": 0, "output_tokens": 0,
+        "input_tokens": 0, "output_tokens": 0, "max_tokens": max_tokens,
         "latency_ms": int((time.monotonic() - started) * 1000),
+        "timeout_sec": timeout, "max_call_sec": max_call_sec,
         "status_code": last_status, "error_kind": last_err_kind, "retry_count": retry_count,
     })
     return CallResult(

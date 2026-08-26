@@ -28,7 +28,6 @@ import os
 import pathlib
 
 import pytest
-
 from review_plan_v2 import paths
 from review_plan_v2.gates import registry
 from review_plan_v2.gates.structural import StructuralAnalyzer

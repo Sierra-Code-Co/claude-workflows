@@ -17,7 +17,6 @@ rather than from the one bug that happened to be famous.
 from __future__ import annotations
 
 import pytest
-
 from review_plan_v2.context import code_scan
 
 

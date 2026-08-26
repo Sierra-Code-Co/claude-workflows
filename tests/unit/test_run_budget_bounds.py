@@ -24,19 +24,19 @@ what bounds in-flight work, and that is enforced in the provider layer.
 """
 from __future__ import annotations
 
-import threading
-import time
-import unittest
-
 # Direct execution needs `scripts` on the path; pytest supplies it via
 # pyproject's `pythonpath` and nothing supplies it outside pytest. Without
 # this the `__main__` guard below is a promise the file cannot keep —
 # T005i-b found seven such modules here, none able to run standalone.
 import sys
+import threading
+import time
+import unittest
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-from review_plan_v2.concurrency import run_with_cap  # noqa: E402
+from review_plan_v2.concurrency import run_with_cap
 
 
 def _sleeper(seconds: float, value: str):

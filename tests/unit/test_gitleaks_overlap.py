@@ -1,14 +1,14 @@
 """Unit test for gitleaks line-overlap filter."""
 from __future__ import annotations
 
-import unittest
-
 # Direct execution needs `scripts` on the path; pytest supplies it via
 # pyproject's `pythonpath` and nothing supplies it outside pytest. Without
 # this the `__main__` guard below is a promise the file cannot keep —
 # T005i-b found seven such modules here, none able to run standalone.
 import sys
+import unittest
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from review_plan_v2.analyzers.gitleaks import filter_to_diff_lines

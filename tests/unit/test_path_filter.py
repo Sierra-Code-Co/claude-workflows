@@ -11,14 +11,12 @@ The negatives below are derived from those three, plus the glob semantics
 from __future__ import annotations
 
 import pytest
-
 from review_plan_v2.path_filter import (
     FilterError,
     apply_filters,
     matches,
     split_patterns,
 )
-
 
 # --- defect 1: the `!` was never stripped ------------------------------------
 

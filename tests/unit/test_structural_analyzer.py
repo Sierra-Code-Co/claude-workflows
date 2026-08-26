@@ -25,8 +25,11 @@ import tempfile
 from pathlib import Path
 
 import pytest
-
-from review_plan_v2.gates.structural import RuleOutcome, StructuralAnalyzer, StructuralResult
+from review_plan_v2.gates.structural import (
+    RuleOutcome,
+    StructuralAnalyzer,
+    StructuralResult,
+)
 from review_plan_v2.types import FileChange
 
 REPO_ROOT = Path(__file__).resolve().parents[2]

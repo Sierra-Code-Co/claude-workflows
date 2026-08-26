@@ -21,9 +21,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-import pytest
-
 import propagate_gates as pg
+import pytest
 
 
 def _t(baseline):
@@ -284,7 +283,7 @@ def test_the_baseline_excludes_the_proof_material_this_tool_ships(tmp_path):
     mis-scoped measurement — inside the one function whose whole job is deciding
     that tier.
     """
-    if shutil.which("ast-grep") is None:                      # noqa: F821
+    if shutil.which("ast-grep") is None:
         pytest.fail("ast-grep missing, so this measurement was never exercised")
     repo = _repo_with(tmp_path, real=2, seeded=5)
     got = pg.measure(repo, pg.TRUNK / "rules" / "raw-caught-to-logger.yml")

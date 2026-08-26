@@ -20,9 +20,9 @@ false positive was firing.
 from __future__ import annotations
 
 import pytest
-
 from review_plan_v2 import change_manifest
-from review_plan_v2.reviewers import consistency, correctness, security, tests as tests_reviewer
+from review_plan_v2.reviewers import consistency, correctness, security
+from review_plan_v2.reviewers import tests as tests_reviewer
 from review_plan_v2.types import Diff, FileChange
 
 

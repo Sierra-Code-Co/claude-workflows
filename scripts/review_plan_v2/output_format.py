@@ -7,7 +7,6 @@ from typing import Iterable
 
 from .types import Finding
 
-
 SEVERITY_PREFIX = {
     "actionable": "[ACTIONABLE]",
     "nit": "[NIT]",

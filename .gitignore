@@ -27,6 +27,22 @@ __pycache__/
 *.pyo
 .pytest_cache/
 .mypy_cache/
+# Local venv + editable-install metadata. `pip install -e '.[dev]'` writes
+# scripts/review_plan_v2.egg-info/, and the suite has to be run from a venv
+# because macOS `python3` is 3.9 and pyproject declares >=3.10 (tests/conftest.py
+# enforces it). Declared HERE rather than in ~/.gitignore_global on purpose: a
+# global ignore is for machine state, and a `lib/` line in that file is what cost
+# this repo three months of misdiagnosis on the cascade fixtures.
+.venv/
+# Version-suffixed siblings for verifying the FLOOR of requires-python. `.venv`
+# tracks whatever is current (3.13 today); `>=3.10` is only a real claim if the
+# suite is run on 3.10, and a `.venv/` line alone leaves `.venv310/` untracked-
+# but-visible, which is how a throwaway venv gets committed.
+.venv3*/
+*.egg-info/
+# setuptools scratch from `pip install .[dev]` (as opposed to `-e`), which the
+# 3.10 floor venv uses.
+build/
 
 # review-plan-v2 runtime state lives outside the repo (~/.claude/review-plan-v2/)
 # — no in-repo gitignore needed. Per-test temp state is colocated with each test repo.

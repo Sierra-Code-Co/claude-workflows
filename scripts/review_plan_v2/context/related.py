@@ -27,7 +27,6 @@ from ..types import FileChange
 from . import symbols
 from ._types import ContextBlock
 
-
 # Probed in order for a bare TS/JS specifier.
 _TS_SUFFIXES = (".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs", ".svelte", ".d.ts")
 _TS_INDEXES = ("index.ts", "index.tsx", "index.js", "index.jsx")

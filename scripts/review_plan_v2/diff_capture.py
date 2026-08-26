@@ -10,7 +10,6 @@ from typing import Iterable
 
 from .types import Diff, FileChange
 
-
 CHUNK_LINE_THRESHOLD = 1500
 LANG_BY_EXT = {
     ".py": "python", ".ts": "typescript", ".tsx": "typescript", ".js": "javascript",
@@ -26,9 +25,30 @@ class DiffCaptureError(Exception):
 
 
 def _git(*args: str, cwd: str | None = None) -> str:
-    """Run a git command, return stdout. Raises CalledProcessError on failure."""
+    """Run a git command, return stdout. Raises CalledProcessError on failure.
+
+    `errors="replace"`, not the default strict decode. git decides what is "text"
+    by looking for NUL bytes, so a file that is latin-1, or partially binary
+    without a NUL, gets a normal textual diff that is NOT valid UTF-8. Strict
+    decoding turned that into a UnicodeDecodeError raised from inside
+    `subprocess.communicate` — a traceback out of the diff-capture layer, before
+    any reviewer ran.
+
+    Two things made it worse than a crash. It escaped as an unhandled exception,
+    so the process exited 1 — the same code as "reviewed the diff, found
+    actionable findings", making a total failure to look indistinguishable from
+    a substantive result. And the message named a byte offset in a decoded
+    stream, not the file, so nothing in the output said which path caused it.
+
+    Replacement characters are the right trade here: a reviewer reading U+FFFD
+    where an undecodable byte was still reviews the rest of the file, and the
+    alternative on offer was reviewing nothing and reporting it as findings.
+    Found by running the tool on a repo whose only change was a partial PNG that
+    git diffed as text.
+    """
     out = subprocess.run(
-        ["git", *args], capture_output=True, text=True, check=True, cwd=cwd
+        ["git", *args], capture_output=True, text=True, check=True, cwd=cwd,
+        errors="replace",
     )
     return out.stdout
 

@@ -16,8 +16,8 @@ import unittest
 from pathlib import Path
 from unittest import mock
 
-from review_plan_v2 import telemetry  # noqa: E402
-from review_plan_v2.providers import deepseek as ds  # noqa: E402
+from review_plan_v2 import telemetry
+from review_plan_v2.providers import deepseek as ds
 
 PRODUCTION_LOG_DIR = Path.home() / ".claude" / "review-plan-v2" / "logs"
 

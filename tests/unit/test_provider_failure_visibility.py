@@ -19,8 +19,8 @@ import json
 import os
 import sys
 import unittest
-from unittest import mock
 from pathlib import Path
+from unittest import mock
 
 # Direct execution needs `scripts` on the path; pytest supplies it via
 # pyproject's `pythonpath` and nothing supplies it outside pytest. Without
@@ -28,9 +28,10 @@ from pathlib import Path
 # T005i-b found seven such modules here, none able to run standalone.
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-from review_plan_v2.providers import _errors, openai as openai_provider  # noqa: E402
-from review_plan_v2.reviewers.base import ProviderCallFailed, Reviewer  # noqa: E402
-from review_plan_v2.types import CallResult, FileChange  # noqa: E402
+from review_plan_v2.providers import _errors
+from review_plan_v2.providers import openai as openai_provider
+from review_plan_v2.reviewers.base import ProviderCallFailed, Reviewer
+from review_plan_v2.types import CallResult, FileChange
 
 
 class OpenAIPayloadContractTests(unittest.TestCase):
@@ -148,11 +149,15 @@ class RedactionTests(unittest.TestCase):
         """Over-redaction destroys the diagnosis this feature exists to deliver.
 
         A greedy `[A-Za-z0-9_-]{32,}` backstop swallows long snake_case symbols
-        (this very test name is 50 characters), turning the one useful line
+        (the identifier below is 69 characters), turning the one useful line
         into `***`.
         """
         for keep in [
-            "test_cascade_invokes_openai_and_google_on_high_risk",
+            # A real test name from this suite, kept in step with it: the point of
+            # the example is that it is a genuinely long snake_case identifier,
+            # and a name no longer in the tree still demonstrates that, but a
+            # reader chasing it finds nothing.
+            "test_cascade_invokes_a_leg_other_than_the_broad_provider_on_high_risk",
             "max_completion_tokens",
             "scripts/review_plan_v2/providers/openai.py",
         ]:

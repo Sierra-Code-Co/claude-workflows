@@ -595,6 +595,16 @@ def verify_claim(
     except (OSError, RuntimeError, json.JSONDecodeError) as e:
         log(f"[verify] FAILED verifying {claim.subject!r}: {type(e).__name__}: {e}")
         return Verdict(UNCHECKED, f"verification failed: {type(e).__name__}: {e}")
-    except Exception as e:  # noqa: BLE001 - deliberate backstop
+    except Exception as e:
+        # Deliberate blind backstop, and the breadth is the point: the three
+        # handlers above name what is expected, and anything unexpected must
+        # still land as `unchecked` rather than propagate and abort the run.
+        # (This rationale used to ride on a BLE001 suppression directive. BLE001
+        # is not in the select set, so that directive suppressed nothing — a
+        # comment claiming a rule was considered here when it was never on.
+        # RUF100 removed it; the reasoning was worth keeping, the false claim
+        # was not. Spelled out in prose rather than quoted, because ruff reads
+        # the token anywhere in a comment and quoting it here re-creates the
+        # very thing being described, as an "invalid directive" warning.)
         log(f"[verify] UNEXPECTED {type(e).__name__} verifying {claim.subject!r}: {e}")
         return Verdict(UNCHECKED, f"verification raised {type(e).__name__}")

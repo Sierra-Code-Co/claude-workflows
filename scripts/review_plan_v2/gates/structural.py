@@ -31,9 +31,9 @@ from typing import Iterable
 
 import yaml
 
+from ..analyzers.base import AnalyzerResult, StaticAnalyzer
 from ..paths import safe_join
 from ..types import FileChange, Finding
-from ..analyzers.base import AnalyzerResult, StaticAnalyzer
 
 # ast-grep's `language:` key → the file globs whose changes can possibly match.
 # Deliberately not open-ended: an unknown language is an explicit error below

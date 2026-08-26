@@ -24,10 +24,10 @@ cost is a pytest startup per mutation rather than a suite per mutation.
 from __future__ import annotations
 
 import pathlib
+import re
 import shutil
 import subprocess
 import sys
-import re
 import tempfile
 
 #: pytest's "tests ran and at least one failed". Every other non-zero code means
@@ -837,11 +837,65 @@ MUTATIONS = [
 ]
 
 
+def _baseline_is_collectable() -> str | None:
+    """Return a refusal message if pytest cannot even COLLECT the pristine tree.
+
+    Every mutation below reads a non-`EXIT_TESTS_FAILED` exit as "the mutation
+    broke the module". That inference is only valid if the UNMUTATED tree
+    collects, and on 2026-08-25 it stopped being: a new interpreter guard in
+    tests/conftest.py raises below Python 3.10, this proof re-invokes pytest as
+    `sys.executable`, and the launcher ran it under macOS's 3.9.6. Every mutation
+    then reported the same manufactured failure, naming the wrong cause and
+    sending a reader to audit 25 guards that were all fine.
+
+    So the environment is proven once, before any mutation, and its failure is
+    reported as its own thing. "The harness cannot run" and "the guard is
+    decorative" are opposite conclusions; a proof that renders one as the other
+    is worse than one that does not run at all.
+    """
+    try:
+        # stderr merged INTO stdout by the pipe, not concatenated afterwards.
+        # `proc.stdout + proc.stderr` appends stderr's first line to stdout's last
+        # one whenever stdout does not end in a newline — which is the crash case,
+        # exactly the case this function exists to report. `_first_error_line`
+        # would then be handed a spliced line and name the wrong cause, in the one
+        # code path whose entire job is naming the right one.
+        proc = subprocess.run(
+            [sys.executable, "-m", "pytest", "-q", "--collect-only", "--no-header"],
+            cwd=REPO, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+            text=True, timeout=300,
+        )
+    except subprocess.TimeoutExpired:
+        # The whole point of this function is to turn an unrunnable harness into a
+        # message that says so. Letting the timeout propagate would replace that
+        # message with a traceback from the check itself — a refusal path that
+        # crashes is not a refusal path, and it is the same defect one level up.
+        return (
+            f"FAIL: pytest did not finish COLLECTING the unmutated tree within "
+            f"300s under {sys.executable}. No mutation result would mean "
+            f"anything, so none were run. This is the harness, not the code "
+            f"under test: collection hung."
+        )
+    out = proc.stdout  # already carries stderr, interleaved rather than appended
+    if proc.returncode == 0 and not _BROKEN_RE.search(out):
+        return None
+    return (
+        f"FAIL: pytest cannot collect the UNMUTATED tree under "
+        f"{sys.executable} (exit {proc.returncode}). No mutation result below "
+        f"would mean anything, so none were run. This is the harness, not the "
+        f"code under test: {_first_error_line(out)}"
+    )
+
+
 def run() -> int:
     if not MUTATIONS:
         # An empty mutation list would print "all 0 mutations detected" and
         # exit 0 — the exact shape this portfolio exists to close.
         print("FAIL: no mutations registered; this proof proves nothing")
+        return 1
+    refusal = _baseline_is_collectable()
+    if refusal is not None:
+        print(refusal)
         return 1
     failures = []
     for label, relpath, old, new, test in MUTATIONS:

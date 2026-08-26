@@ -27,7 +27,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 import types
 
 import pytest
-
 from review_plan_v2 import orchestrator
 from review_plan_v2.types import Diff, RunConfig, merge_cli_into_config
 

@@ -13,7 +13,6 @@ from __future__ import annotations
 import json
 
 import pytest
-
 from review_plan_v2.analyzers.ruff import RuffAnalyzer
 from review_plan_v2.types import FileChange
 

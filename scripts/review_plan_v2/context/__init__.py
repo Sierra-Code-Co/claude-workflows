@@ -18,7 +18,8 @@ from pathlib import Path
 from ..types import FileChange
 from ._types import ContextBlock
 from .budget import DEFAULT_BUDGET_CHARS, fit
-from .related import ContextReport, gather as gather_related
+from .related import ContextReport
+from .related import gather as gather_related
 from .standing import gather as gather_standing
 
 __all__ = [

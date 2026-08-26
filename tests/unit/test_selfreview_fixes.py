@@ -21,7 +21,6 @@ import subprocess
 
 import jsonschema
 import pytest
-
 from review_plan_v2.aggregator import supersede_completeness_speculation
 from review_plan_v2.gates.registry import Acceptance, RegistryError, load_registry
 from review_plan_v2.types import Finding

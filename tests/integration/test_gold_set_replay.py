@@ -22,8 +22,12 @@ import pathlib
 import shutil
 
 import pytest
-
-from review_plan_v2.verification.classify import CONFIRMED, REFUTED, UNVERIFIABLE, claim_from_dict
+from review_plan_v2.verification.classify import (
+    CONFIRMED,
+    REFUTED,
+    UNVERIFIABLE,
+    claim_from_dict,
+)
 from review_plan_v2.verification.verify import Verdict, verify_claim
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]

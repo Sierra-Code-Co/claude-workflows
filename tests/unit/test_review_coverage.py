@@ -27,7 +27,6 @@ Two independent defects, tested separately:
 from __future__ import annotations
 
 import pytest
-
 from review_plan_v2.orchestrator import wall_clock_budget_sec
 from review_plan_v2.output_format import exit_code_for
 from review_plan_v2.types import Finding

@@ -21,19 +21,20 @@ import io
 import json
 import os
 import pathlib
-import unittest
-from unittest import mock
 
 # Direct execution needs `scripts` on the path; pytest supplies it via
 # pyproject's `pythonpath` and nothing supplies it outside pytest. Without
 # this the `__main__` guard below is a promise the file cannot keep —
 # T005i-b found seven such modules here, none able to run standalone.
 import sys
+import unittest
 from pathlib import Path
+from unittest import mock
+
 sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from review_plan_v2.providers import _budget as budget
-from review_plan_v2.providers import deepseek as ds  # noqa: E402
+from review_plan_v2.providers import deepseek as ds
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
 

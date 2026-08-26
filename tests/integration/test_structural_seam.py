@@ -12,8 +12,18 @@ import unittest
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# `tests/` only. Deliberately no second insert for `scripts`: nothing in this file
+# imports from it, and `support.runner` adds that path itself for its own
+# in-process registry import. A path mutation kept for a reason that no longer
+# applies is the kind of line that gets cited as precedent later.
+#
+# This comment used to narrate the removal of such an insert. It was added and
+# removed inside this branch, so against `main` there is no deletion to see and
+# the note sent a reader looking for history that the merged file does not
+# contain — the same shape as a message asserting something it never checked.
 
-from support.runner import run_v2  # noqa: E402
+from support.fixture_server import FixtureServer
+from support.runner import run_v2
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -76,19 +86,32 @@ class StructuralSeamTests(unittest.TestCase):
     an enumerator that could not run actually SAYS so in the report a human
     reads, or whether the gap is computed and then dropped on the floor.
 
-    Both runs use `--dry-run`-free, provider-free invocations: the structural
-    wave is free and runs before any reviewer, so no fixture server is needed.
-    Reviewers are disabled by pointing the providers at nothing and asserting
-    only on the structural lines.
+    Both runs go through a fixture server, and that is not incidental. This file
+    used to blank four provider key names to "disable" the reviewers, on the
+    theory that the structural wave runs first and is free. Two things were wrong
+    with it. The four names omitted GEMINI_API_KEY, so on any machine with the
+    default broad provider's key exported the run made real, billed Google calls
+    and only finished inside this file's 180s bound because the per-attempt wall
+    used to be 180s. And blanking ALL of them does not work either: a run with no
+    broad-pass key is refused up front with [DEAD-LEG] before the structural wave
+    prints anything, so the assertions below would fail on a correct tool. A key
+    plus a fixture endpoint is the only configuration where the reviewers neither
+    cost money nor abort the run.
     """
 
     def setUp(self):
         import tempfile
+        # addCleanup, not tearDown: unittest does not run tearDown if setUp
+        # raises, so a FixtureServer.start() failure — a port already bound is the
+        # realistic one — left the TemporaryDirectory on disk with nothing to
+        # remove it. Registered as each resource is acquired, so each is released
+        # whether or not the next one succeeds.
         self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
         self.tmp = Path(self._tmp.name)
-
-    def tearDown(self):
-        self._tmp.cleanup()
+        self.server = FixtureServer()
+        self.addCleanup(self.server.stop)
+        self.base_url = self.server.start()
 
     def test_absent_coverage_reaches_the_rendered_report(self):
         """No rules configured -> the run must SAY completeness went unanswered.
@@ -99,14 +122,23 @@ class StructuralSeamTests(unittest.TestCase):
         question was never asked.
         """
         repo = _repo_with_violation(self.tmp, with_rules=False)
-        result = run_v2("--plain", "--base", "main", "--dry-run",
-                        cwd=repo, timeout=120)
-        # --dry-run stops before reviewers but after the analyzer wave decision,
-        # so re-run without it for the full path.
-        result = run_v2("--plain", "--base", "main",
-                        cwd=repo, timeout=180,
-                        env_extra={"DEEPSEEK_API_KEY": "", "ANTHROPIC_API_KEY": "",
-                                   "OPENAI_API_KEY": "", "GOOGLE_API_KEY": ""})
+        # --dry-run stops before reviewers but after the analyzer wave decision.
+        # Its result is ASSERTED rather than discarded: it used to be overwritten
+        # on the next line without a single check, so the subprocess cost a second
+        # of wall clock and proved nothing, and a keyless machine — where the
+        # up-front [DEAD-LEG] refusal exits 2 before the wave is ever decided —
+        # looked identical to a machine where it worked. Given the fixture server
+        # it is deterministic either way.
+        dry = run_v2("--plain", "--base", "main", "--dry-run", cwd=repo, timeout=120,
+                     fixture_base_url=self.base_url, fixture_name="01-clean")
+        self.assertNotIn("DEAD-LEG", dry.stdout + dry.stderr,
+                         msg="the dry run was refused before the analyzer wave decision, "
+                             "so it says nothing about coverage reporting")
+        self.assertIn(dry.exit_code, (0, 1),
+                      msg=f"dry run exit={dry.exit_code} stderr={dry.stderr[-800:]}")
+        # Now the full path.
+        result = run_v2("--plain", "--base", "main", cwd=repo, timeout=180,
+                        fixture_base_url=self.base_url, fixture_name="01-clean")
         out = result.stdout + result.stderr
         self.assertIn("NO-STRUCTURAL-COVERAGE", out,
                       msg=f"absent coverage never reached the report:\n{out[:2000]}")
@@ -117,10 +149,8 @@ class StructuralSeamTests(unittest.TestCase):
         SIGNAL as well as gaps. A wiring that emitted the banner unconditionally
         would satisfy the test above while never reporting a real violation."""
         repo = _repo_with_violation(self.tmp, with_rules=True)
-        result = run_v2("--plain", "--base", "main",
-                        cwd=repo, timeout=180,
-                        env_extra={"DEEPSEEK_API_KEY": "", "ANTHROPIC_API_KEY": "",
-                                   "OPENAI_API_KEY": "", "GOOGLE_API_KEY": ""})
+        result = run_v2("--plain", "--base", "main", cwd=repo, timeout=180,
+                        fixture_base_url=self.base_url, fixture_name="01-clean")
         # Anchored on the FINDING LINE, not on the rule id anywhere in the
         # output. The first version searched stdout+stderr for
         # "raw-caught-to-logger" and passed against a run that found NOTHING —

@@ -28,7 +28,7 @@ REPO_ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(REPO_ROOT / "tests" / "proofs"))
 
 import reviewer_proof  # noqa: E402
-
+from review_plan_v2.providers import registry  # noqa: E402
 from review_plan_v2.reviewers import security  # noqa: E402
 
 
@@ -52,14 +52,30 @@ class _Fixed:
     def __init__(self, findings: list):
         self._findings = findings
 
-    def run(self, chunk):  # noqa: ARG002 - the point is that input is ignored
+    def run(self, chunk):
+        # `chunk` is unused on purpose: a reviewer that ignores its input is
+        # exactly the failure this double stands in for. (Carried an ARG002
+        # suppression directive, which suppressed nothing — ARG is not in the
+        # select set. Named in prose, not quoted: ruff reads the token anywhere
+        # in a comment, so quoting it warns "invalid directive".)
         return list(self._findings)
 
 
 @pytest.fixture()
 def live_key(monkeypatch):
-    """Satisfy the key check without making a call — every reviewer is stubbed."""
-    monkeypatch.setenv("DEEPSEEK_API_KEY", "not-a-real-key-no-call-is-made")
+    """Satisfy the key check without making a call — every reviewer is stubbed.
+
+    Asks the registry which variable the proof will actually read, rather than
+    naming one. It set `DEEPSEEK_API_KEY`, and once the proof moved to
+    `registry.DEFAULT_BROAD` that satisfied nothing: the four controls below
+    passed only on a machine that happened to have a REAL key in its ambient
+    environment, and returned UNPROVEN everywhere else. Same defect the proof
+    itself had, one layer out — and the fixture's failure mode was worse, because
+    a control that silently depends on ambient credentials is a control whose
+    green is unrelated to what it claims to check.
+    """
+    for name in registry.KEY_ENV[registry.DEFAULT_BROAD]:
+        monkeypatch.setenv(name, "not-a-real-key-no-call-is-made")
 
 
 def test_a_blind_reviewer_fails_the_proof(live_key, monkeypatch, capsys):
@@ -79,7 +95,7 @@ def test_a_discriminating_reviewer_passes(live_key, monkeypatch):
     calls = {"n": 0}
 
     class Discriminating:
-        def run(self, chunk):  # noqa: ARG002
+        def run(self, chunk):
             calls["n"] += 1
             return [_Finding("unparameterised SQL injection in the query")] if calls["n"] == 1 else []
 
@@ -98,7 +114,7 @@ def test_a_generic_nit_on_the_planted_diff_is_not_enough(live_key, monkeypatch, 
     calls = {"n": 0}
 
     class Irrelevant:
-        def run(self, chunk):  # noqa: ARG002
+        def run(self, chunk):
             calls["n"] += 1
             return [_Finding("prefer const over let", category="style")] if calls["n"] == 1 else []
 
@@ -111,7 +127,7 @@ def test_a_provider_error_is_unproven_not_failure(live_key, monkeypatch, capsys)
     """A rate limit and a blind reviewer must not print the same verdict."""
 
     class Broken:
-        def run(self, chunk):  # noqa: ARG002
+        def run(self, chunk):
             raise RuntimeError("429 rate limited")
 
     monkeypatch.setattr(security, "make", lambda *a, **k: Broken())
@@ -126,7 +142,13 @@ def test_a_missing_key_reports_unproven_not_success(monkeypatch, capsys):
     Returning 0 here would make "we had no key" indistinguishable from "the
     reviewers found the planted bug" in every log and every CI summary.
     """
-    monkeypatch.delenv("DEEPSEEK_API_KEY", raising=False)
+    # Every provider's key, not one name: this deleted `DEEPSEEK_API_KEY` alone, so
+    # on a machine with a real GEMINI_API_KEY exported the proof ran for real and the
+    # test failed — and on a machine with no keys at all it passed for the wrong
+    # reason. A test for the no-key path has to create the no-key state itself.
+    for names in registry.KEY_ENV.values():
+        for name in names:
+            monkeypatch.delenv(name, raising=False)
     assert reviewer_proof.main() == reviewer_proof.EXIT_UNPROVEN
     assert "UNPROVEN" in capsys.readouterr().out
 

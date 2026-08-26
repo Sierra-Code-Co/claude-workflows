@@ -24,9 +24,9 @@ import os
 import pathlib
 
 import pytest
-
 from review_plan_v2 import context
-from review_plan_v2.context import budget as budget_mod, related, standing
+from review_plan_v2.context import budget as budget_mod
+from review_plan_v2.context import related, standing
 from review_plan_v2.types import FileChange
 
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]

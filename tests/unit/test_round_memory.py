@@ -14,7 +14,6 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-
 from review_plan_v2.context import rounds
 from review_plan_v2.types import Finding
 

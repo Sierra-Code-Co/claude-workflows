@@ -10,9 +10,9 @@ import urllib.request
 
 from ..telemetry import log_call
 from ..types import CallResult
-from ._budget import MAX_CALL_SEC, TIMEOUT_SEC, budget_fields, env_float, max_tokens as resolve_max_tokens
+from ._budget import MAX_CALL_SEC, TIMEOUT_SEC, budget_fields, env_float
+from ._budget import max_tokens as resolve_max_tokens
 from ._errors import is_blank, redact, summarize_error_body
-
 
 DEFAULT_BASE = "https://api.deepseek.com"
 # `deepseek-reasoner` is now only an ALIAS and silently resolves to the

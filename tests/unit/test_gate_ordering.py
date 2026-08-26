@@ -18,7 +18,6 @@ from __future__ import annotations
 import pathlib
 
 import pytest
-
 from review_plan_v2 import output_format
 from review_plan_v2.gates import attribution, registry
 from review_plan_v2.types import Finding

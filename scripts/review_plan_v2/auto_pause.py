@@ -5,11 +5,11 @@ import fcntl
 import json
 import os
 import subprocess
+import sys
 from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Iterator
-
 
 DEFAULT_STATE_PATH = Path(os.environ.get(
     "REVIEW_PLAN_V2_STATE_FILE",
@@ -106,7 +106,44 @@ def state_session(repo_key_str: str, branch: str, state_path: Path | None = None
     fd = os.open(str(path), os.O_RDWR | os.O_CREAT, 0o600)
     fd_owned_by_file = False
     try:
-        fcntl.flock(fd, fcntl.LOCK_EX)
+        # Non-blocking first, purely so a wait can be ANNOUNCED. The lock is
+        # exclusive and spans the entire review, and the default path is ONE file
+        # shared by every repo on the machine (keyed by repo:branch inside, but
+        # locked as a whole). So a second run started while a first is in flight
+        # blocks here — before the `broad pass:` line, after the gate-portfolio
+        # line — and prints nothing for as long as the first review takes.
+        #
+        # Measured: two runs launched 3 minutes apart in different repos. The
+        # second sat silent for 20+ minutes with no output, no child process, and
+        # a live pid. Every diagnostic that a hang gets — is the process alive, is
+        # it in a subprocess, is the network moving — said "fine", because it was
+        # fine. It was queued. A tool that waits without saying so is
+        # indistinguishable from a tool that has hung, and this one instructs its
+        # operator that a run may legitimately take more than ten minutes, which
+        # removes the only remaining signal.
+        try:
+            fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+        # PermissionError alongside BlockingIOError, and NOT redundant: a contended
+        # LOCK_NB raises EAGAIN on darwin and linux (measured on this host: errno 35,
+        # BlockingIOError), but POSIX permits EACCES for the same condition, which
+        # Python maps to PermissionError. On such a platform the narrower catch turns
+        # a queue into a traceback — the failure mode this whole block exists to
+        # remove. Listed here rather than left to be "cleaned up" as unreachable.
+        except (BlockingIOError, PermissionError):
+            # Deliberately does NOT name a holder. Every `holder_pid` in the file
+            # is written by record() on a CLEAN EXIT, so the live holder has not
+            # written anything yet and the pid on disk belongs to the previous
+            # completed run. Naming it would be a plausible, checkable-looking
+            # claim that is wrong exactly when it matters.
+            print(
+                f"WAITING: another review-plan-v2 run holds the shared state file "
+                f"({path}). The lock spans a whole review, so this can be several "
+                f"minutes — this is a queue, not a hang. Point "
+                f"REVIEW_PLAN_V2_STATE_FILE at a per-repo path to run two reviews "
+                f"at once.",
+                file=sys.stderr, flush=True,
+            )
+            fcntl.flock(fd, fcntl.LOCK_EX)
         f = os.fdopen(fd, "r+", encoding="utf-8")  # f now owns fd
         fd_owned_by_file = True
         with f:

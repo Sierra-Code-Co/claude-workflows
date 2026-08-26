@@ -28,7 +28,6 @@ import json
 from ..types import FileChange, Finding
 from .base import AnalyzerOutputError, StaticAnalyzer
 
-
 #: Codes ruff emits that are NOT rule ids. A file that does not parse is
 #: reported as `invalid-syntax`, with no numeric code at all — so the
 #: prefix-matching below saw a string starting with "i", fell through every

@@ -20,7 +20,6 @@ distinction G5's second half turned on.
 """
 from __future__ import annotations
 
-
 # Tokens after which a `/` opens a REGEX LITERAL rather than dividing. This is
 # the standard lexer heuristic: a regex can only appear where a value is
 # expected, so the preceding token decides. Getting it wrong in the permissive

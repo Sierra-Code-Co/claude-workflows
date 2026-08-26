@@ -57,6 +57,23 @@ def build_parser() -> argparse.ArgumentParser:
 
 
 def main(argv: list[str] | None = None) -> int:
+    # Before argparse, and before the orchestrator import below. The shell
+    # entrypoint now resolves an interpreter that meets the floor, but
+    # `python3 -m review_plan_v2` bypasses the shell entirely — CI, the
+    # Dockerfile, and anyone reading the module path out of the README all
+    # invoke it that way. A guard that only covers the wrapper leaves the
+    # documented invocation unguarded, which is how the original one ended up
+    # dead: it existed, in a module nothing called.
+    #
+    # Exit 2 (tool error), not 1: 1 means "reviewed the diff, found actionable
+    # findings". Reporting an unusable interpreter as a review result would be
+    # the same category confusion this guard exists to prevent.
+    from .check_deps import python_version_error
+    version_error = python_version_error()
+    if version_error is not None:
+        print(version_error, file=sys.stderr)
+        return 2
+
     parser = build_parser()
     args = parser.parse_args(argv)
     # Defer import so --version/--help don't pay orchestrator import cost

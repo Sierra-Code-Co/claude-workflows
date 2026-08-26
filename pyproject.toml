@@ -59,6 +59,60 @@ include = ["review_plan_v2*"]
 # tests/unit/test_schema_copies_match.py keeps the two copies byte-identical.
 "review_plan_v2.gates" = ["schemas/*.json"]
 
+[tool.ruff]
+# DECLARED, not inherited. Until 2026-08-25 this section did not exist, so the
+# ruff gate enforced whatever the installed ruff happened to default to — and
+# `blocking: blocks` in gates.yml rests on a baseline recorded as "ruff: 0
+# findings at all", measured on 2026-08-16 against 0.15.5's defaults.
+#
+# 0.16.4 added I and PIE to its default selection. So `brew upgrade ruff`
+# silently changed what blocks this repo: measured the same day on the same
+# tree, the pinned 0.15.5 reports "All checks passed" while Homebrew's 0.16.4
+# reports 5 findings on two files, and a full review run produced 16. Nothing
+# went red to announce that; the gate simply started enforcing a different
+# contract. The `ruff==0.15.5` pin above says in as many words that this is the
+# failure it exists to prevent ("a runner on a different version enforces a
+# different rule set — local, CI and the container stop being the same gate
+# without any of them going red"), and it does not prevent it, because
+# analyzers/ruff.py invokes the bare `ruff` on PATH rather than the pinned one.
+# CI and the container install `.[dev]` and get the pin; a developer's shell
+# gets Homebrew. The pin was decorative for exactly the runs a human reads.
+#
+# An explicit select is the fix that holds regardless of which binary wins:
+# a version difference can now change how a rule behaves, but not which rules
+# are gates. Contents are 0.15.5's defaults (E4/E7/E9/F) plus I, which is
+# adopted rather than dropped — import sorting is mechanically fixable, the
+# findings were already surfaced, and `ruff check --fix` cleared them all.
+#
+# RUF100 is enabled, and the first draft of this comment declined it on a reason
+# that was backwards twice over. It claimed "E402 itself stays off" and that
+# RUF100 "would demand deleting the `# noqa: E402` comments, which are
+# load-bearing documentation". Both are wrong:
+#
+#   - E402 is ON. `select = ["E4"]` is a PREFIX, and E4 covers E401 and E402.
+#     There is no spelling of this select set that enables E4 and not E402.
+#     (`ruff check --isolated --select E4` on a two-import probe fires E402.)
+#   - So those comments are live suppressions, not documentation — and only 11
+#     of them are. `--select E402 --ignore-noqa` finds 11 real violations across
+#     the repo against 44 `# noqa: E402` comments, so 33 suppress nothing. RUF100
+#     reports 40 unused. A suppression that suppresses nothing is a claim in the
+#     source that a rule was considered here, and it is false.
+#
+# Removing them does not touch what test_test_collection.py actually guards:
+# test_a_guarded_module_runs_directly imports each module standalone and asserts
+# the `sys.path` bootstrap keeps the `if __name__ == "__main__"` promise. It reads
+# no comment text. The 11 surviving directives now mark the real bootstraps, which
+# is what made them legible in the first place.
+#
+# Deliberately NOT enabled, having looked at each:
+#   S102    fires on test_broad_provider_selection.py's `exec`, which is how it
+#           mutates registry source to prove a guard is not vacuous.
+#   PLW1510 subprocess.run without check=; several callsites read the return
+#           code deliberately. Worth revisiting per-callsite, not as a gate.
+#   PIE810  one call site, stylistic.
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I", "RUF100"]
+
 [tool.pytest.ini_options]
 # 16 of 17 test files hand-rolled `sys.path.insert(0, .../scripts)` because
 # there was nowhere to declare this. Those lines are now redundant; they are

@@ -7,6 +7,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+
 # Restores direct execution (`python3 tests/integration/<file>.py`). pytest gets
 # `tests` from pyproject's `pythonpath`, but a direct run has no such help, and
 # the `if __name__ == "__main__"` guard at the foot of this file PROMISES that
@@ -15,8 +16,8 @@ from pathlib import Path
 # tests/unit/test_test_collection.py::test_a_guarded_module_runs_directly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from support.fixture_server import FixtureServer  # noqa: E402
-from support.runner import cleanup_repo, make_repo_from_diff, run_v2  # noqa: E402
+from support.fixture_server import FixtureServer
+from support.runner import cleanup_repo, make_repo_from_diff, run_v2
 
 REPO = Path(__file__).resolve().parents[2]
 

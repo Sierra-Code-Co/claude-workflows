@@ -8,7 +8,6 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-
 _lock = threading.Lock()
 _FALLBACK_LOG_DIR = str(Path.home() / ".claude" / "review-plan-v2" / "logs")
 
@@ -30,6 +29,12 @@ _ALLOWED_KEYS = {
     # when every call that needed more had already been dropped. Counts and a
     # boolean; no prompt, diff, or message content (FR-015).
     "max_tokens", "near_budget",
+    # The LATENCY ceilings in force, for the same reason and learned the same
+    # way. A row reading `latency_ms: 180200, error_kind: transient` does not say
+    # whether 180s was the limit or a coincidence, so reconstructing the
+    # 2026-08-25 timeout kills meant reading the constant out of the source as it
+    # stands today and assuming it had not changed. Two floats, no content.
+    "timeout_sec", "max_call_sec",
 }
 
 

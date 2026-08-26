@@ -26,7 +26,6 @@ import json
 import pathlib
 
 import pytest
-
 from review_plan_v2.gates import registry
 
 CONTRACT = (

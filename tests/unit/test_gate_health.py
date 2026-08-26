@@ -16,9 +16,7 @@ an f-string over a missing variable produces.
 from __future__ import annotations
 
 import pytest
-
 from review_plan_v2.gates.registry import Gate, GateHealth, RegistryError
-
 
 # --- the (ran x skipped_reason) matrix, all four cells -----------------------
 

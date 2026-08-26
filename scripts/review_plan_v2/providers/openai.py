@@ -9,6 +9,7 @@ Default model: gpt-5.5 (operator's flagship). Override via REVIEW_PLAN_V2_OPENAI
 """
 from __future__ import annotations
 
+import http.client
 import json
 import os
 import time
@@ -18,13 +19,19 @@ import urllib.request
 
 from ..telemetry import log_call
 from ..types import CallResult
-from ._budget import MAX_CALL_SEC, TIMEOUT_SEC, budget_fields, env_float, max_tokens as resolve_max_tokens
+from ._budget import (
+    RETRY_SLEEPS,
+    budget_fields,
+    resolve_call_budget,
+)
+from ._budget import max_tokens as resolve_max_tokens
 from ._errors import is_blank, redact, summarize_error_body
-
 
 DEFAULT_BASE = "https://api.openai.com"
 DEFAULT_MODEL = "gpt-5.5"
-RETRY_SLEEPS = (1.0, 4.0)
+# RETRY_SLEEPS is imported from _budget, not defined here: MAX_CALL_SEC is derived
+# from it, so a local copy would silently change how many retries this provider
+# can afford without changing the budget that pays for them.
 ALLOWED_SCHEMES = ("http", "https")
 
 
@@ -40,6 +47,13 @@ def _classify(status: int | None, exc: Exception | None) -> tuple[str | None, bo
         if isinstance(exc, TimeoutError):
             return "transient", True
         if isinstance(exc, urllib.error.URLError):
+            return "transient", True
+        # See google.py's copy of this comment for the measurement. A dropped or
+        # reset connection subclasses neither URLError nor TimeoutError, so it was
+        # a non-retryable "unknown" and took the whole reviewer task with it.
+        # HTTPException as well as ConnectionError, because IncompleteRead — a
+        # truncated response body — is HTTPException only.
+        if isinstance(exc, (ConnectionError, http.client.HTTPException)):
             return "transient", True
         return "unknown", False
     if status is None:
@@ -79,12 +93,11 @@ def call(system_prompt: str, user_prompt: str, model: str | None = None,
         # would be read before the override existed and silently ignored.
         max_tokens = resolve_max_tokens()
 
-    if timeout is None:
-        timeout = env_float("REVIEW_PLAN_V2_OPENAI_TIMEOUT", TIMEOUT_SEC)
-    max_call_sec = env_float("REVIEW_PLAN_V2_OPENAI_MAX_CALL", MAX_CALL_SEC)
-    # A budget checked only before retries is not a budget: with
-    # REVIEW_PLAN_V2_OPENAI_TIMEOUT above MAX_CALL, attempt 0 alone overruns it.
-    timeout = min(timeout, max_call_sec)
+    # Resolved together, not one env var each — see google.py and
+    # _budget.resolve_call_budget. Overriding only the timeout left the ceiling at
+    # its import-time value and the clamp then cut the timeout back to it.
+    timeout, max_call_sec = resolve_call_budget(
+        "REVIEW_PLAN_V2_OPENAI_TIMEOUT", "REVIEW_PLAN_V2_OPENAI_MAX_CALL", timeout)
 
     if model is None:
         model = os.environ.get("REVIEW_PLAN_V2_OPENAI_MODEL", DEFAULT_MODEL)
@@ -173,6 +186,7 @@ def call(system_prompt: str, user_prompt: str, model: str | None = None,
                         "output_tokens": int(usage.get("completion_tokens", 0)),
                         **budget_fields(int(usage.get("completion_tokens", 0)), max_tokens, reviewer),
                         "latency_ms": int((time.monotonic() - started) * 1000),
+                        "timeout_sec": timeout, "max_call_sec": max_call_sec,
                         "status_code": status, "error_kind": None, "retry_count": retry_count,
                     })
                     return CallResult(
@@ -193,16 +207,25 @@ def call(system_prompt: str, user_prompt: str, model: str | None = None,
             last_detail = summarize_error_body(raw)
             if not retryable:
                 break
-        except (urllib.error.URLError, TimeoutError, OSError) as e:
+        # HTTPException too: IncompleteRead is HTTPException and NOT OSError, so
+        # it escaped this handler and propagated out of call(). See google.py.
+        except (urllib.error.URLError, TimeoutError, OSError,
+                http.client.HTTPException) as e:
             last_err_kind, retryable = _classify(None, e)
             last_detail = redact(str(e) or type(e).__name__)
             if not retryable:
                 break
 
+    # The failure row carries the budgets too. It did not, and the ONE class of row
+    # where the ceiling is the likely cause was the class that recorded no ceiling.
+    #
+    # `near_budget` is deliberately ABSENT rather than False — see google.py for
+    # why, and test_failure_row_schema.py for the assertion.
     log_call({
         "provider": "openai", "model": model, "reviewer": reviewer,
-        "input_tokens": 0, "output_tokens": 0,
+        "input_tokens": 0, "output_tokens": 0, "max_tokens": max_tokens,
         "latency_ms": int((time.monotonic() - started) * 1000),
+        "timeout_sec": timeout, "max_call_sec": max_call_sec,
         "status_code": last_status, "error_kind": last_err_kind, "retry_count": retry_count,
     })
     return CallResult(

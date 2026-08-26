@@ -107,6 +107,21 @@ IFS=',' read -r -a acknowledged <<< "${RPV2_UNPROVEN_OK:-}"
 
 is_acknowledged() {
     local needle="$1" item
+    # The count guard is required, not defensive. bash 3.2 treats "${arr[@]}" on a
+    # ZERO-element array as an unbound variable under `set -u`, and 3.2.57 is what
+    # macOS ships as /bin/bash — which is what `#!/usr/bin/env bash` resolves to on
+    # a machine without a Homebrew bash ahead of it on PATH. bash fixed this in 4.4.
+    #
+    # With RPV2_UNPROVEN_OK unset the read above produces exactly that empty array,
+    # so this function aborted the script the first time any proof exited 3. The
+    # runner then died at line 110 with "acknowledged[@]: unbound variable" BEFORE
+    # printing its verdict, which is how an UNPROVEN gate produced no "not
+    # acknowledged" line and no non-zero-for-the-right-reason exit. Two tests in
+    # test_proof_runner.py have been red on that since this function was written;
+    # they were reading as flakes in a list of pre-existing failures.
+    #
+    # ${#arr[@]} is safe on an empty array in 3.2; only ${arr[@]} is not.
+    (( ${#acknowledged[@]} )) || return 1
     for item in "${acknowledged[@]}"; do
         [[ "${item// /}" == "${needle}" ]] && return 0
     done

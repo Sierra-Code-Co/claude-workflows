@@ -6,14 +6,20 @@ import sys
 from pathlib import Path
 
 from . import (
-    aggregator, change_manifest, config as config_mod, diff_capture, output_format,
+    aggregator,
+    change_manifest,
+    diff_capture,
+    output_format,
     telemetry,
 )
-from .context import rounds
+from . import (
+    config as config_mod,
+)
 from .auto_pause import current_branch, repo_key, state_session
 from .concurrency import TaskNeverStarted, run_with_cap
+from .context import rounds
+from .providers import _budget as provider_budget
 from .types import Diff, Finding, RunConfig, merge_cli_into_config
-
 
 # Wall-clock budget for the whole reviewer phase.
 #
@@ -32,13 +38,29 @@ from .types import Diff, Finding, RunConfig, merge_cli_into_config
 # chunks and 65-125s on reasoning-heavy ones, so 45s truncated the hard half of
 # every wave — the half worth reviewing.
 PER_WAVE_BUDGET_SEC = 200.0
-# Floor must exceed one slow call (180s) or a single hard chunk exhausts the
-# whole budget on a tiny diff.
-MIN_WALL_CLOCK_SEC = 300.0
+# The floor must exceed ONE full provider retry chain, or a tiny diff containing a
+# single hard chunk is truncated by the run deadline and the coverage banner blames
+# a provider fault that is really this constant.
+#
+# DERIVED, because the rule above was stated in prose and then not held. It read
+# "Floor must exceed one slow call (180s)" beside a hand-set 300.0, while the
+# provider budget it had to exceed was itself 300.0 — equal, so "exceed" was
+# already false, and 200.0 per wave was below it too. Both numbers were sized
+# against a per-attempt timeout that has since moved, which is exactly how a
+# hand-copied bound drifts from the thing it bounds.
+#
+# One pathological call chain plus a wave of ordinary work: a run whose slowest
+# task retries once must still have room for the rest of that wave.
+MIN_WALL_CLOCK_SEC = provider_budget.MAX_CALL_SEC + PER_WAVE_BUDGET_SEC
 # Ceiling stays at 30 minutes. It is a backstop, not a target: a pre-push gate
 # that runs longer than this is not one anyone waits for, and since #27 an
 # exhausted budget is reported loudly ([INCOMPLETE] + exit 2) rather than
 # passing for a clean review, so a strict ceiling now costs honesty nothing.
+#
+# It must also stay ABOVE the floor. `min(MAX, max(MIN, x))` with MIN > MAX
+# returns MAX for every input, silently discarding the floor — a clamp that
+# inverts does not raise, it just quietly stops honouring one of its two bounds.
+# tests/unit/test_call_budget_derivation.py asserts the ordering.
 MAX_WALL_CLOCK_SEC = 1800.0
 
 
@@ -285,10 +307,10 @@ def run(args) -> int:
     # never itself becomes a path (FR-023).
     structural_rule_paths: dict[str, Path] = {}
     if not cfg.no_static_analyzers:
-        from .analyzers.markdownlint import MarkdownlintAnalyzer
         from .analyzers.actionlint import ActionlintAnalyzer
-        from .analyzers.shellcheck import ShellcheckAnalyzer
+        from .analyzers.markdownlint import MarkdownlintAnalyzer
         from .analyzers.ruff import RuffAnalyzer
+        from .analyzers.shellcheck import ShellcheckAnalyzer
         from .gates.structural import StructuralAnalyzer
         structural = StructuralAnalyzer(rules_dir=Path(repo_root) / "rules")
         analyzers = [MarkdownlintAnalyzer(), ActionlintAnalyzer(), ShellcheckAnalyzer(),
@@ -431,19 +453,95 @@ def run(args) -> int:
                 print(f"ERROR: estimated cost ${est:.4f} exceeds --max-cost-usd ${cfg.max_cost_usd:.4f}", file=sys.stderr)
                 return 3
 
-        # Build reviewer × chunk callables
-        from .providers import openai as openai_provider
-        from .providers import google as google_provider
-        from .reviewers import security, correctness, tests, consistency
+        # Build reviewer × chunk callables. No direct `google`/`openai` imports:
+        # every provider module is resolved through the registry now, so naming
+        # two of them here would re-create by import the hand-maintained pairing
+        # the cascade loop below just stopped keeping.
+        from .providers import registry as provider_registry
+        from .reviewers import consistency, correctness, security, tests
         from .reviewers.base import Reviewer as ReviewerBase
-        reviewers = [security.make(), correctness.make(), tests.make(), consistency.make()]
-        # Cascade reviewers for high-risk paths. Two non-Claude frontier providers
-        # run in parallel: OpenAI gpt-5.5 + Google gemini-2.5-pro. Anthropic was
-        # dropped from the cascade because the operator works with Claude Code as
-        # the implementation model — a Claude judge on Claude-written code is the
-        # same anti-self-grading violation that spec 130's `routeJudgeForCandidate`
-        # exists to prevent. Cascade providers now: deepseek (broad) + openai (cascade)
-        # + google (cascade) = 3 independent non-Claude perspectives on high-risk paths.
+        broad = cfg.broad_provider
+        # This value decides where the diff of every changed file is sent, and it can
+        # come from .review-plan-v2.yaml — a file in the branch under review. A
+        # reviewer raised that as arbitrary egress redirection. What bounds it is not
+        # this line but three things upstream, recorded here because the question is a
+        # fair one to ask again:
+        #
+        #   1. config._apply_broad_provider rejects anything outside
+        #      registry.REVIEW_CAPABLE at load. That tuple is in this repo, not in the
+        #      reviewed branch, so the reachable set is the two vendors already vetted
+        #      for this — it is the out-of-repo allowlist, not a free-text field.
+        #   2. A key is still required. A provider with no key refuses the run rather
+        #      than falling back, so naming a provider cannot by itself start sending.
+        #   3. The env var wins over the file, so CI or an operator can pin the
+        #      destination regardless of what the branch says.
+        #
+        # What is genuinely not bounded: a branch can flip between the two capable
+        # vendors. Both are acceptable for the material this tool reviews, which is
+        # why that is tolerable rather than fixed. Adding a provider to REVIEW_CAPABLE
+        # that is NOT acceptable for every repo would break that reasoning, and the
+        # fix then is a trusted-config pin, not a wider allowlist.
+        reviewers = [
+            security.make(broad), correctness.make(broad),
+            tests.make(broad), consistency.make(broad),
+        ]
+        # Fail loudly, before spending a single call, when the broad provider has no
+        # key. Without this every reviewer on every file returns
+        # `auth (HTTP no-response)` and the run reads as an outage. That exact
+        # ambiguity burned a diagnostic session: 40 identical auth failures whose
+        # real cause was egress filtering, not a missing key. Naming the env var
+        # separates the two in one line.
+        if not provider_registry.has_key(broad):
+            # Carries the [DEAD-LEG] token deliberately. That banner is this tool's
+            # established vocabulary for "a provider contributed nothing, re-running
+            # will not help", and a broad provider with no key is the deadest leg
+            # there is — it makes zero calls instead of failing all of them. Anything
+            # already grepping for DEAD-LEG (the docs tell operators to) must catch
+            # this case too, or the worst outage is the one the signal misses.
+            print(
+                f"[DEAD-LEG] broad provider '{broad}' has no API key — "
+                f"{provider_registry.missing_key_hint(broad)}. Every reviewer would "
+                "fail auth on every file, so NOTHING would be reviewed and a clean "
+                "verdict would be meaningless. Refused before spending a call. Set "
+                "the key, or select another provider with broad_provider in "
+                ".review-plan-v2.yaml or REVIEW_PLAN_V2_BROAD_PROVIDER. This is a "
+                "configuration failure, not a flaky run.",
+                file=sys.stderr,
+            )
+            return 2
+        # Always name the broad provider, not just when it differs from the default.
+        # This line is the only place a reader can confirm WHERE the diff of every
+        # changed file was sent, and "silent when default" makes the check useless
+        # for exactly the repos that care: an unparsable config falls back to the
+        # default, which would then print nothing at all.
+        #
+        # Name the ORIGIN too, not just the provider. Item 3 of the comment above
+        # ("the env var wins over the file, so CI or an operator can pin the
+        # destination regardless of what the branch says") is only a real bound if
+        # the operator can tell which origin actually won. The previous form
+        # printed `[default]` or nothing, so a reviewed branch selecting the same
+        # provider the operator would have chosen anyway was indistinguishable
+        # from nobody selecting anything — and a branch selecting the OTHER
+        # capable vendor printed a bare provider name with no hint that the choice
+        # came from the diff under review.
+        print(
+            f"broad pass: {broad} ({provider_registry.default_model(broad)}) "
+            f"[{cfg.broad_provider_source}]",
+            file=sys.stderr,
+        )
+        # Cascade reviewers for high-risk paths. Candidates are the two non-Claude
+        # frontier providers, OpenAI gpt-5.5 and Google gemini-3.1-pro-preview, minus
+        # whichever one is running the broad pass (see the duplicate-leg comment
+        # below). Anthropic was dropped from the cascade because the operator works
+        # with Claude Code as the implementation model — a Claude judge on
+        # Claude-written code is the same anti-self-grading violation that spec 130's
+        # `routeJudgeForCandidate` exists to prevent.
+        #
+        # So under the current google default, high-risk paths get google (broad) +
+        # openai (leg) = 2 independent non-Claude perspectives, not 3. It was 3 when
+        # deepseek ran the broad pass; deepseek was removed on 2026-08-25 over data
+        # egress on employer repositories, and this comment claimed 3 for a while
+        # afterward. Recount here if the provider set changes again.
         cascade_eligible = {"security", "correctness"}
         cascade_reviewers: list[tuple[ReviewerBase, str]] = []  # (reviewer, provider_tag)
         # A cascade leg with no API key is dropped here, silently. spec.md:180
@@ -451,36 +549,105 @@ def run(args) -> int:
         # paths get one reviewer instead of three and nothing in the output
         # says so. Track the omissions so they can be reported.
         cascade_skipped: list[str] = []
+        # Split by REASON, because the two reasons are not the same news. A leg
+        # dropped for duplicating the broad provider is the design working; a leg
+        # dropped for want of a key is coverage the operator expected and did not
+        # get. Both used to print the same line — "High-risk paths are being
+        # reviewed by fewer independent models than configured" — which under the
+        # google default fires on every single run, since the google leg is always
+        # the duplicate. A warning that is unconditional is one nobody reads, and
+        # this one also asserted something it never checked: it claimed a shortfall
+        # against "configured" without counting either number.
+        cascade_dropped_as_duplicate: list[str] = []
+        cascade_missing_key: list[str] = []
         if not cfg.no_cascade and cfg.high_risk_paths:
-            if not os.environ.get("OPENAI_API_KEY"):
-                cascade_skipped.append("openai (no OPENAI_API_KEY)")
-            if not (os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY")):
-                cascade_skipped.append("google (no GEMINI_API_KEY/GOOGLE_API_KEY)")
-            for name in cascade_skipped:
+            # Iterate the registry and resolve the module through it, rather than
+            # pairing tags to modules by hand. The hand-written pairing is one
+            # decision expressed twice, and the two can disagree: a provider added
+            # to REVIEW_CAPABLE is selectable for the broad pass the moment it
+            # lands, but would be silently absent from the cascade — and a missing
+            # leg is not an error, it is just coverage the operator thinks they
+            # have. `module()` also refuses a REFUSED tag rather than dispatching
+            # to it, so the egress rules hold here by construction instead of by
+            # this loop happening to list only two names.
+            for tag in provider_registry.REVIEW_CAPABLE:
+                provider_mod = provider_registry.module(tag)
+                # A cascade leg on the same provider as the broad pass is not a
+                # second opinion. The cascade buys N INDEPENDENT perspectives on
+                # high-risk paths; the same model twice is one perspective billed
+                # twice, and it inflates the apparent reviewer count exactly where
+                # the operator is relying on it most. Drop it and say so, rather
+                # than reporting three legs when two of them agree by construction.
+                if tag == broad:
+                    cascade_skipped.append(
+                        f"{tag} (already the broad provider — a duplicate leg is not "
+                        "an independent opinion)"
+                    )
+                    cascade_dropped_as_duplicate.append(tag)
+                    continue
+                if not provider_registry.has_key(tag):
+                    cascade_skipped.append(
+                        f"{tag} (no {'/'.join(provider_registry.KEY_ENV[tag])})"
+                    )
+                    cascade_missing_key.append(
+                        f"{tag} (set {' or '.join(provider_registry.KEY_ENV[tag])})"
+                    )
+                    continue
+                for rv in reviewers:
+                    if rv.name not in cascade_eligible:
+                        continue
+                    cascade_reviewers.append((ReviewerBase(
+                        name=f"{rv.name}-cascade-{tag}",
+                        prompt_filename=rv.prompt_filename,
+                        provider_call=provider_mod.call,
+                        model=provider_mod.DEFAULT_MODEL,
+                        needs_manifest=rv.needs_manifest,
+                    ), tag))
+            # Count what high-risk paths actually got, rather than asserting a
+            # shortfall. The broad provider reviews them too, so it is one of the
+            # independent perspectives; the cascade adds the others.
+            kept_tags = sorted({tag for _, tag in cascade_reviewers})
+            independent_kept = 1 + len(kept_tags)
+            # The most this configuration could reach: the broad pass, plus every
+            # cascade tag that is not itself the broad provider. A duplicate leg is
+            # not part of the maximum, so dropping it cannot be a shortfall against it.
+            # REVIEW_CAPABLE, not a literal pair. A tag added to the registry
+            # becomes selectable for the broad pass immediately; if this count
+            # kept its own list it would understate the maximum and report a
+            # shortfall that does not exist, on a warning whose whole purpose is
+            # to compare two numbers honestly.
+            independent_max = 1 + len(
+                [t for t in provider_registry.REVIEW_CAPABLE if t != broad]
+            )
+            providers_line = ", ".join([f"{broad} (broad)"] + kept_tags)
+            for name in cascade_dropped_as_duplicate:
                 print(
-                    f"WARNING: cascade leg skipped — {name}. High-risk paths are "
-                    "being reviewed by fewer independent models than configured.",
+                    f"NOTE: cascade leg not run — {name} is already the broad "
+                    f"provider, so a second {name} leg would be one perspective "
+                    f"billed twice rather than an independent one. Expected under "
+                    f"the {broad} default, not a gap.",
                     file=sys.stderr,
                 )
-            for rv in reviewers:
-                if rv.name not in cascade_eligible:
-                    continue
-                if os.environ.get("OPENAI_API_KEY"):
-                    cascade_reviewers.append((ReviewerBase(
-                        name=f"{rv.name}-cascade-openai",
-                        prompt_filename=rv.prompt_filename,
-                        provider_call=openai_provider.call,
-                        model=openai_provider.DEFAULT_MODEL,
-                        needs_manifest=rv.needs_manifest,
-                    ), "openai"))
-                if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
-                    cascade_reviewers.append((ReviewerBase(
-                        name=f"{rv.name}-cascade-google",
-                        prompt_filename=rv.prompt_filename,
-                        provider_call=google_provider.call,
-                        model=google_provider.DEFAULT_MODEL,
-                        needs_manifest=rv.needs_manifest,
-                    ), "google"))
+            for name in cascade_missing_key:
+                print(
+                    f"WARNING: cascade leg unavailable — {name}. This one IS a gap: "
+                    f"a provider that was configured to review high-risk paths did "
+                    f"not run.",
+                    file=sys.stderr,
+                )
+            if independent_kept < independent_max:
+                print(
+                    f"WARNING: high-risk paths reviewed by {independent_kept} of "
+                    f"{independent_max} independent providers ({providers_line}). "
+                    f"A clean verdict there is thinner than the configuration implies.",
+                    file=sys.stderr,
+                )
+            else:
+                print(
+                    f"high-risk paths: {independent_kept} independent providers "
+                    f"({providers_line}) — the maximum this configuration reaches.",
+                    file=sys.stderr,
+                )
 
         chunks = list(diff_capture.chunked_files(diff))
 
@@ -525,7 +692,7 @@ def run(args) -> int:
                 if ch.is_binary:
                     continue
                 task_name = f"{rv.name}:{ch.path}"
-                task_provider[task_name] = "deepseek"
+                task_provider[task_name] = broad
                 callables.append((task_name, lambda rv=rv, ch=ch: rv.run(
                     ch, manifest=manifest,
                     context_text=context_by_path.get(ch.path, ""))))
@@ -546,12 +713,15 @@ def run(args) -> int:
 
         budget_sec = wall_clock_budget_sec(len(callables), cfg.max_concurrency)
         results = run_with_cap(callables, max_workers=cfg.max_concurrency, deadline_sec=budget_sec)
-        provider_call_counts: dict[str, int] = {"deepseek": 0, "openai": 0, "google": 0}
-        provider_fail_counts: dict[str, int] = {"deepseek": 0, "openai": 0, "google": 0}
-        provider_starved_counts: dict[str, int] = {"deepseek": 0, "openai": 0, "google": 0}
+        # Keyed off the registry rather than a literal triple. A hand-maintained
+        # dict here is how a newly selectable provider becomes a KeyError at the
+        # end of a run that has already spent every call it was going to spend.
+        provider_call_counts: dict[str, int] = {t: 0 for t in provider_registry.ALL_TAGS}
+        provider_fail_counts: dict[str, int] = {t: 0 for t in provider_registry.ALL_TAGS}
+        provider_starved_counts: dict[str, int] = {t: 0 for t in provider_registry.ALL_TAGS}
         failed_task_count = 0
         for r in results:
-            provider_of_task = task_provider.get(r.name, "deepseek")
+            provider_of_task = task_provider.get(r.name, broad)
             provider_call_counts[provider_of_task] += 1
             if r.exception is not None:
                 # STARVATION IS NOT FAILURE. A concurrency-level TimeoutError
@@ -776,9 +946,10 @@ def _render_and_print(findings: list[Finding], summary: dict, cfg: RunConfig) ->
 # (anti-self-grading on Claude-written code); kept here for any historical
 # replay tooling that still needs to compute Anthropic cost.
 _PRICING = {
-    # deepseek-v4-pro. Was (0.55, 2.19) — deepseek-reasoner/R1 pricing, stale
-    # once the alias collapsed onto the v4 family. The cap gates on this, so a
-    # wrong rate here mis-sizes --max-cost-usd.
+    # deepseek-v4-pro. No longer selectable as a reviewer (PRC-operated API vs.
+    # the data-egress expectation on employer repos), kept for replay of
+    # calls.jsonl written before that change. Was (0.55, 2.19) — R1 pricing,
+    # stale once the alias collapsed onto the v4 family.
     "deepseek": (0.28, 0.42),
     "openai": (5.0, 30.0),       # gpt-5.5
     "google": (1.25, 10.0),      # gemini-3.1-pro-preview (same rate as 2.5-pro)
@@ -833,11 +1004,28 @@ def _estimate_cost_usd(diff: Diff, cfg: RunConfig | None = None) -> float:
     """Heuristic cost estimate. Accounts for cascade spend (OpenAI + Gemini)
     on the high-risk subset for cascade-eligible reviewers."""
     import fnmatch as _fnm
+
+    from .providers import registry as _registry
+
     chars = sum(len(f.diff_text) for f in diff.files)
     in_tok = chars // 4
     out_tok = max(500, in_tok // 10)
 
-    ds_in, ds_out = _PRICING["deepseek"]
+    # Rate for the provider actually running the broad pass. Reading "deepseek"
+    # unconditionally here under-charged a gemini or gpt broad pass by 4x to 18x,
+    # and --max-cost-usd gates on this number, so the cap would not have held.
+    # cfg is None only from legacy callers that predate RunConfig being threaded
+    # through; they get the current default rather than a stale literal.
+    broad_tag = cfg.broad_provider if cfg else _registry.DEFAULT_BROAD
+    # Strict, like the cascade lookup below, and for the same reason: substituting
+    # the default's rate for an unpriced broad tag is a guess on the leg that
+    # DOMINATES the bill (it reads every changed file), and openai runs ~4x google
+    # on the same diff. This was `.get(broad_tag, _PRICING[DEFAULT_BROAD])` — no
+    # reachable path fed it an unpriced tag, since `_apply_broad_provider` only
+    # accepts REVIEW_CAPABLE and test_every_known_tag_has_a_key_env_var_and_a_price
+    # pins every tag's rate, so the fallback was dead code that read as a policy of
+    # quietly pricing an unknown provider as if it were the default.
+    ds_in, ds_out = _PRICING[broad_tag]
     ds_cost = _NUM_REVIEWERS * (in_tok * ds_in + out_tok * ds_out) / 1_000_000
 
     # Cascade: OpenAI + Gemini run on the high-risk subset for cascade-eligible
@@ -852,12 +1040,27 @@ def _estimate_cost_usd(diff: Diff, cfg: RunConfig | None = None) -> float:
     cascade_in_tok = cascade_chars // 4
     cascade_out_tok = max(500, cascade_in_tok // 10) if cascade_chars else 0
 
+    # Skip the leg that IS the broad provider, matching what the run actually does:
+    # the orchestrator drops a cascade leg duplicating the broad pass, so charging
+    # for it here would over-estimate and could trip --max-cost-usd on spend that
+    # was never going to happen.
+    # REVIEW_CAPABLE rather than a literal pair, so the estimator cannot disagree
+    # with the dispatcher about which legs exist. A hand-maintained pair here was
+    # exactly that risk: a provider added to the registry and dispatched for real
+    # would be spend the cap never saw, and --max-cost-usd would gate on a number
+    # that omitted a whole leg.
+    #
+    # `_PRICING[tag]` on purpose, not `.get(tag, something)`. A provider that is
+    # REVIEW_CAPABLE but unpriced raises KeyError here, which is the correct
+    # failure on a money path: guessing a rate would let the cap approve spend it
+    # had not actually costed. Loud beats plausible when the output is a budget,
+    # and test_every_known_tag_has_a_key_env_var_and_a_price keeps the KeyError
+    # theoretical by failing first, in unit time, if a tag is added unpriced.
     cascade_cost = 0.0
-    if os.environ.get("OPENAI_API_KEY"):
-        oi_in, oi_out = _PRICING["openai"]
-        cascade_cost += _CASCADE_REVIEWERS * (cascade_in_tok * oi_in + cascade_out_tok * oi_out) / 1_000_000
-    if os.environ.get("GEMINI_API_KEY") or os.environ.get("GOOGLE_API_KEY"):
-        gg_in, gg_out = _PRICING["google"]
-        cascade_cost += _CASCADE_REVIEWERS * (cascade_in_tok * gg_in + cascade_out_tok * gg_out) / 1_000_000
+    for tag in _registry.REVIEW_CAPABLE:
+        if tag == broad_tag or not _registry.has_key(tag):
+            continue
+        c_in, c_out = _PRICING[tag]
+        cascade_cost += _CASCADE_REVIEWERS * (cascade_in_tok * c_in + cascade_out_tok * c_out) / 1_000_000
 
     return ds_cost + cascade_cost

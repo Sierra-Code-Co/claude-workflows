@@ -4,8 +4,29 @@ from __future__ import annotations
 import time
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import TimeoutError as FuturesTimeoutError
 from dataclasses import dataclass
 from typing import Any
+
+# Imported explicitly rather than relying on the builtin, and the distinction is
+# not academic on this repo's declared floor. `concurrent.futures.TimeoutError`
+# only became an ALIAS of the builtin `TimeoutError` in Python 3.11. This package
+# declares `requires-python = ">=3.10"`, and on 3.10 `except TimeoutError:` below
+# does not catch what `Future.result(timeout=...)` raises — so the deadline branch
+# never runs, no queued future is cancelled, and every outstanding task is
+# recorded as a generic failure by the `except Exception` fallthrough.
+#
+# That is exactly the regression run_with_cap's docstring describes as FIXED:
+# results that were waited for anyway get discarded, failed_task_count inflates,
+# and a chunk that was reviewed still prints "[INCOMPLETE] ... its verdict is
+# unproven". On 3.10 the tool shipped with that bug and the four tests that would
+# have caught it read as concurrency flakes. Verified 2026-08-25: 4 failures on
+# 3.10 and 3.9, 0 on 3.13, and 0 on all three after this line.
+#
+# On 3.11+ this name IS the builtin, so the tuple below collapses to one class and
+# costs nothing. Kept as a tuple so removing 3.10 support does not require
+# remembering to also remove a subtle behavioural dependency.
+_TIMEOUT_ERRORS = (FuturesTimeoutError, TimeoutError)
 
 
 @dataclass
@@ -75,7 +96,7 @@ def run_with_cap(
                 value, dur_ms = fut.result(timeout=remaining)
                 results[idx] = TaskResult(name=name, value=value, exception=None,
                                           duration_ms=dur_ms)
-            except TimeoutError as e:
+            except _TIMEOUT_ERRORS as e:
                 # Ambiguous: `fut.result(timeout=...)` raises TimeoutError, and so
                 # does a task that itself times out. Only the former means the
                 # budget blew, and only then may we cancel siblings.

@@ -18,9 +18,9 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+
 from support.fixture_server import FixtureServer
 from support.runner import cleanup_repo, run_v2
-
 
 FINDING_LINE = 3
 

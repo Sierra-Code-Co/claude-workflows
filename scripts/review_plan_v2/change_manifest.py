@@ -18,7 +18,6 @@ import re
 
 from .types import ChangeManifest, Diff
 
-
 # Path shapes that mean "this file is a test", by convention across the
 # ecosystems this tool reviews. Anchored on path SEGMENTS and extensions, never
 # on a bare substring: `src/latest.ts`, `src/protest.py` and `src/contest/x.ts`

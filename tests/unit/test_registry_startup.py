@@ -20,7 +20,6 @@ import pathlib
 import types
 
 import pytest
-
 from review_plan_v2 import orchestrator
 
 VALID = """\

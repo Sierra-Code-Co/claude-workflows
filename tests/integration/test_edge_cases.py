@@ -4,6 +4,7 @@ from __future__ import annotations
 import sys
 import unittest
 from pathlib import Path
+
 # Restores direct execution (`python3 tests/integration/<file>.py`). pytest gets
 # `tests` from pyproject's `pythonpath`, but a direct run has no such help, and
 # the `if __name__ == "__main__"` guard at the foot of this file PROMISES that
@@ -11,9 +12,13 @@ from pathlib import Path
 # eight modules at once, silently — pinned now by
 # tests/unit/test_test_collection.py::test_a_guarded_module_runs_directly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+# `scripts` too — same omission as test_cascade.py, same cause: the
+# `review_plan_v2` import is indented inside a test method, so the line above
+# covers the visible `support` imports and the file reads as bootstrapped.
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
-from support.fixture_server import FixtureServer  # noqa: E402
-from support.runner import cleanup_repo, make_repo_from_diff, run_v2  # noqa: E402
+from support.fixture_server import FixtureServer
+from support.runner import cleanup_repo, make_repo_from_diff, run_v2
 
 REPO = Path(__file__).resolve().parents[2]
 
@@ -86,8 +91,15 @@ class DegradedProviderTests(unittest.TestCase):
         self.server.stop()
         cleanup_repo(self.repo)
 
-    def test_missing_deepseek_key_with_no_other_provider_is_a_tool_error(self):
+    def test_missing_broad_provider_key_with_no_other_provider_is_a_tool_error(self):
         """Zero operable providers MUST NOT report a clean review.
+
+        Blanks whichever provider the BROAD pass actually uses, read from the
+        registry rather than named here. It named DEEPSEEK_API_KEY, and when the
+        broad default moved off deepseek that env_extra became a no-op: the run
+        went green and the test passed while asserting nothing. A test that
+        hardcodes the thing under configuration stops testing it the moment the
+        configuration changes, and passes on the way out.
 
         This assertion was inverted until 2026-08-13: it required exit 0 and
         called that "graceful degradation". FR-009 does say affected reviewers
@@ -98,7 +110,9 @@ class DegradedProviderTests(unittest.TestCase):
                         operate with zero providers"
           spec.md:180  "silent skip would create false confidence"
           tasks.md T062 "missing DEEPSEEK_API_KEY (with no other configured
-                        provider) → exit 2"
+                        provider) → exit 2" (deepseek was the broad provider
+                        when T062 was written; the requirement is about the
+                        broad provider, not that vendor)
 
         T062 also specified this live in `test_degraded_providers.py`; the test
         that actually shipped was a different file asserting the opposite
@@ -106,10 +120,36 @@ class DegradedProviderTests(unittest.TestCase):
         hook and CI caller, on a run where no reviewer executed at all — the
         exact false-confidence failure the spec names twice.
         """
+        from review_plan_v2.providers import registry
+
+        # Blank EVERY key var of EVERY provider. Two separate traps:
+        #   - Per provider, clearing one name is not enough: google accepts either
+        #     GEMINI_API_KEY or GOOGLE_API_KEY, so it stays operable on the other.
+        #   - Across providers, clearing only the broad one leaves this test's own
+        #     premise ("zero operable providers") false, since run_v2 keys every
+        #     provider in the registry. Exit 2 today is decided by the broad provider
+        #     alone, so the narrower version passed — for a reason the test does not
+        #     assert and that a change to the refusal rule would quietly invalidate.
+        blanked = {var: "" for keys in registry.KEY_ENV.values() for var in keys}
+        self.assertTrue(blanked, "registry has no key env vars at all")
+        # Assert the broad provider HAS key vars, not that they are in `blanked`.
+        # The `assertIn` this replaces was a tautology: `blanked` is built from
+        # every value of KEY_ENV, so KEY_ENV[DEFAULT_BROAD]'s vars are members by
+        # construction — and if that entry were empty the loop body never ran, so
+        # the one thing worth checking was the one thing it skipped. Exit 2 below
+        # is decided by the broad provider alone, so an unkeyed broad provider is
+        # what makes this test's premise true.
+        self.assertTrue(
+            registry.KEY_ENV.get(registry.DEFAULT_BROAD),
+            f"broad provider {registry.DEFAULT_BROAD!r} has no key env vars in "
+            "registry.KEY_ENV, so blanking cannot make it inoperable and this "
+            "test's premise of zero operable providers is false",
+        )
+
         result = run_v2(
             "--plain", "--base", "main", "--no-static-analyzers",
             cwd=self.repo, fixture_base_url=self.base_url, fixture_name="01-clean",
-            env_extra={"DEEPSEEK_API_KEY": ""},
+            env_extra=blanked,
             timeout=30,
         )
         self.assertEqual(
