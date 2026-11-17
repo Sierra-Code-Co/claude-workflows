@@ -1,0 +1,14 @@
+{
+  "package": "slop-guard",
+  "version": "0.5.0",
+  "upstream": "https://github.com/eric-tramel/slop-guard",
+  "license": "MIT",
+  "wheel_url": "https://files.pythonhosted.org/packages/1b/90/9a04d4493f834e0211ded1df25c34b40a8f63eaab3275c9dc2b461691d9e/slop_guard-0.5.0-py3-none-any.whl",
+  "wheel_sha256": "f92ff3876dc49131c68c88fb0f37209dd0fb818429e7437fa07f72807e189e7d",
+  "pyz_sha256": "cf4502948680fe5f736c5e81f6e9bdacf791589d7f1c05ddf3e0a392b38d25a9",
+  "overlay": [
+    "__main__.py",
+    "typing_extensions.py"
+  ],
+  "python_requires": ">=3.11"
+}

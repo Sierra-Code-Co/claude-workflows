@@ -21,18 +21,92 @@
 
 set -euo pipefail
 
-PROJECTS_DIR="$HOME/dev/projects"
-TEMPLATE_DIR="$PROJECTS_DIR/claude-speckit-template"
+# Overridable so the skip/target logic can be exercised against a scratch tree. It was
+# hardcoded until 2026-08-29, which meant the only way to test a change to target
+# discovery was to run it against the real projects directory — so the SKIP_LIST fix
+# below could not be shown to work before being committed. A propagation script whose
+# blast radius is every repo on the machine should not be unverifiable.
+PROJECTS_DIR="${PROJECTS_DIR:-$HOME/dev/projects}"
+
+# The template repo is `internal-speckit-template` since the 2026-08-24 rename, and
+# this script hardcoded the pre-rename `claude-speckit-template` until 2026-08-29 — so
+# on a machine carrying the current name it exited 1 on "source install script not
+# found" for a template sitting right there. The template's own README still documents
+# cloning into the OLD directory name (README.md:36), so neither name can be assumed;
+# resolve across both, current name first. Same reasoning and same failure as
+# propagate-skill.sh, which is where the longer write-up lives. `TEMPLATE_DIR` from the
+# environment overrides and is not second-guessed with a fallback.
+TEMPLATE_CANDIDATES=(internal-speckit-template claude-speckit-template)
+if [ -n "${TEMPLATE_DIR:-}" ]; then
+  if [ ! -d "$TEMPLATE_DIR" ]; then
+    echo "✗ TEMPLATE_DIR is set to a directory that does not exist: $TEMPLATE_DIR" >&2
+    echo "  Unset it to fall back to directory search, or fix the path." >&2
+    exit 1
+  fi
+else
+  TEMPLATE_DIR=""
+  for candidate in "${TEMPLATE_CANDIDATES[@]}"; do
+    if [ -d "$PROJECTS_DIR/$candidate" ]; then
+      TEMPLATE_DIR="$PROJECTS_DIR/$candidate"
+      break
+    fi
+  done
+  if [ -z "$TEMPLATE_DIR" ]; then
+    echo "✗ template repo not found. Tried, in order:" >&2
+    for candidate in "${TEMPLATE_CANDIDATES[@]}"; do
+      echo "    $PROJECTS_DIR/$candidate" >&2
+    done
+    echo "  Clone it, or set TEMPLATE_DIR if the repo moved again." >&2
+    exit 1
+  fi
+fi
 SOURCE_SCRIPT="$TEMPLATE_DIR/scripts/install_office_skills.sh"
 
+# BOTH names of both source-of-truth repos. The skip list matches on exact basename, so
+# the pre-rename spellings alone meant `internal-speckit-template` and
+# `internal-claude-workflows` were enumerated as propagation TARGETS on this machine —
+# the template and the global-config repo offered up to receive skills pushed from
+# here. That is the quiet counterpart to the loud not-found above: same rename, one
+# failure that stops the script and one that silently widens its blast radius.
 SKIP_LIST=(
+  "internal-speckit-template"
   "claude-speckit-template"
+  "internal-claude-workflows"
   "claude-workflows"
+  "claude-workflows-public"
   "_archive"
   "avatar-scratch"
   "LogosBibleSoftwareMCP"
   "story-memory-business"
 )
+
+# Plus the resolved template's own basename, which the fixed names above cannot cover.
+# `TEMPLATE_DIR=$PROJECTS_DIR/my-template` selects a source template whose basename is
+# in no list, so target discovery enumerates it and installs the Office skills into the
+# repo they are being copied FROM. Same defect propagate-skill.sh had, and the fix there
+# derives its exclusions from `basename "$TEMPLATE_DIR"` for exactly this reason. It was
+# fixed there by hand and stayed broken here, which is what two scripts sharing a
+# resolution rule and not sharing a helper costs. CodeRabbit caught it.
+#
+# Added only when the override actually lives under PROJECTS_DIR. From anywhere else it
+# can never be enumerated as a target, and skipping on a bare basename match would then
+# silently drop a real project that happens to share the name — trading a loud
+# duplicate-install for a quiet miss.
+TEMPLATE_BASENAME="$(basename "$TEMPLATE_DIR")"
+case "$TEMPLATE_DIR" in
+  "$PROJECTS_DIR"/*)
+    already_skipped=0
+    for s in "${SKIP_LIST[@]}"; do
+      if [ "$s" = "$TEMPLATE_BASENAME" ]; then
+        already_skipped=1
+        break
+      fi
+    done
+    if [ "$already_skipped" -eq 0 ]; then
+      SKIP_LIST+=("$TEMPLATE_BASENAME")
+    fi
+    ;;
+esac
 
 DRY_RUN=false
 ASSUME_YES=false
@@ -59,7 +133,8 @@ done
 
 if [ ! -f "$SOURCE_SCRIPT" ]; then
   echo "✗ source install script not found: $SOURCE_SCRIPT" >&2
-  echo "  Make sure claude-speckit-template is cloned at $TEMPLATE_DIR" >&2
+  echo "  The template repo resolved to $TEMPLATE_DIR but has no install script there." >&2
+  echo "  Make sure it is cloned and up to date (git pull)." >&2
   echo "  and up to date (git pull)." >&2
   exit 1
 fi
@@ -73,7 +148,19 @@ if [ -n "$SINGLE_PROJECT" ]; then
   fi
   TARGETS=("$candidate")
 else
-  mapfile -t TARGETS < <(find "$PROJECTS_DIR" -mindepth 2 -maxdepth 2 -type d -name ".claude" \
+  # Read loop, not `mapfile -t`: `mapfile` is a bash-4 builtin and this machine has
+  # only bash 3.2.57, which both `/bin/bash` and `/usr/bin/env bash` resolve to. With
+  # `mapfile` here the script died on this line with `command not found` and exit 127
+  # after printing its header, so it read as working until it enumerated nothing.
+  # Note that shellcheck assumes bash 4+ and passes `mapfile` clean, so a green lint
+  # was not evidence this ran. Found by sweeping for the same construct after
+  # propagate-skill.sh hit it on 2026-08-29. (This comment cannot begin with the word
+  # "shellcheck" either — that spelling is parsed as a lint DIRECTIVE and fails the
+  # file with SC1072/SC1073. Cost one red lint on 2026-08-29.)
+  TARGETS=()
+  while IFS= read -r project_dir_found; do
+    TARGETS+=("$project_dir_found")
+  done < <(find "$PROJECTS_DIR" -mindepth 2 -maxdepth 2 -type d -name ".claude" \
     -not -path "*/node_modules/*" 2>/dev/null \
     | while read -r claude_dir; do
         project_dir="$(dirname "$claude_dir")"
@@ -94,7 +181,7 @@ fi
 
 echo "Found ${#TARGETS[@]} target project(s):"
 for p in "${TARGETS[@]}"; do
-  rel="$(echo "$p" | sed "s|$PROJECTS_DIR/||")"
+  rel="${p#"$PROJECTS_DIR"/}"
   status=""
   if [ -d "$p/.claude/skills/docx" ] && [ -d "$p/.claude/skills/pptx" ] && [ -d "$p/.claude/skills/xlsx" ]; then
     status=" (all 3 already installed — will refresh)"
@@ -142,7 +229,7 @@ succeeded=()
 skipped=()
 
 for project in "${TARGETS[@]}"; do
-  rel="$(echo "$project" | sed "s|$PROJECTS_DIR/||")"
+  rel="${project#"$PROJECTS_DIR"/}"
   echo "──────────────────────────────────────────────────────────"
   echo "Project: $rel"
 

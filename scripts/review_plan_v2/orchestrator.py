@@ -129,6 +129,32 @@ def run(args) -> int:
     cfg = config_mod.load_config(repo_root, cli_config_override=args.config)
     cfg = merge_cli_into_config(args, cfg)
 
+    # 1a. Mutually exclusive flags, checked HERE and not where they are used.
+    # `--static-only` runs the deterministic analyzers and nothing else, so
+    # `--no-static-analyzers` alongside it leaves no gate of any kind, and exit 0
+    # would be a clean verdict from a run that checked nothing.
+    #
+    # This lived inside the `cfg.static_only` block at step 6b until CodeRabbit
+    # caught it on PR #72, and the placement defeated the guard completely: the
+    # empty-diff return, the `--dry-run` return, and the deterministic
+    # short-circuit all come first, so adding `--dry-run` or pointing `--base` at
+    # HEAD exited 0 with the contradiction unreported. MEASURED on the branch
+    # before the move, both exit 0:
+    #
+    #     --static-only --no-static-analyzers --dry-run   -> 0
+    #     --static-only --no-static-analyzers --base HEAD -> 0
+    #
+    # An argv contradiction is knowable from argv alone, so nothing about the
+    # diff, the config, or the analyzers may be allowed to answer it first.
+    if cfg.static_only and cfg.no_static_analyzers:
+        print(
+            "ERROR: --static-only with --no-static-analyzers leaves nothing to "
+            "run. Exiting 2 rather than reporting a clean verdict for a run that "
+            "checked nothing.",
+            file=sys.stderr,
+        )
+        return 2
+
     # Strict-config gate
     if cfg.strict_config and config_mod.has_config_error(cfg):
         print("ERROR: --strict-config: config error, ran with defaults aborted (exit 5)", file=sys.stderr)
@@ -391,6 +417,14 @@ def run(args) -> int:
         )
         summary = {
             "auto_paused": False,
+            # Reported on this path too, because a deterministic gate fires before
+            # step 6b and so a `--static-only` run that HALTS never reaches the
+            # block that sets it. Without this an agent parsing NDJSON cannot tell
+            # whether an exit 1 came from a static run or a full review, which is
+            # the same "reviewed everything" / "reviewed nothing" conflation the
+            # banner exists to prevent on the clean path. No banner here: its text
+            # is about a clean verdict, and this run is not clean.
+            "static_only": cfg.static_only,
             "halted_on_secret": halt_due_to_secret,
             # Named, not just flagged. "short_circuited: true" would leave the
             # operator guessing which of six deterministic gates stopped the run.
@@ -415,6 +449,49 @@ def run(args) -> int:
         for f in sorted(x.path for x in diff.files):
             print(f"DRY RUN:   {_printable(f)}", file=sys.stderr)
         return 0
+
+    # 6b. Static-only: the deterministic analyzers already ran above, so render
+    # what they found and stop before any reviewer is constructed. As of
+    # 2026-08-28 this is the supported pre-push mode and the model legs are
+    # retired: they were billed separately for a subset of what the PR-side
+    # reviewer surfaces anyway, and a run held per-file reviewer output for every
+    # changed file at foreground priority with no cross-process guard, which
+    # panicked a 24 GB machine twice when three runs overlapped.
+    #
+    # Deliberately outside `state_session`: a static run is not a review round,
+    # so it must not advance the auto-pause counter. Three static runs in a row
+    # would otherwise pause the next real review for being "trivial" when no
+    # reviewer had run at all.
+    # The `--no-static-analyzers` contradiction is rejected at step 1a, before any
+    # early return can answer it instead.
+    if cfg.static_only:
+        merged = aggregator.aggregate(
+            [secret_findings, other_analyzer_findings],
+            path_instructions=cfg.path_instructions,
+            dedup_window=cfg.dedup_window,
+        )
+        # Before the findings, not after: a clean static run and a clean full
+        # review print the same "No findings" body, and the difference between
+        # them is the entire question of what was actually checked.
+        print(
+            "=== STATIC ONLY: deterministic analyzers only. No reviewer ran, no "
+            "provider was called, and no diff left this machine — so a clean "
+            "verdict here says nothing about correctness, security, or test "
+            "coverage. CodeRabbit is the review.",
+            file=sys.stderr,
+        )
+        summary = {
+            "auto_paused": False,
+            "static_only": True,
+            "config_warnings": cfg.config_warnings,
+            "analyzers_skipped": analyzers_skipped,
+            "structural_coverage_gaps": structural_gaps,
+            "providers_called": [],
+        }
+        _render_and_print(merged, summary, cfg)
+        return output_format.exit_code_for(
+            merged, failed_task_count=0, registry=registry,
+        )
 
     # 7. Auto-pause check + reviewer dispatch (lock spans full review)
     import subprocess as _subprocess

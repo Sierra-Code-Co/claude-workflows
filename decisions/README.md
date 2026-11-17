@@ -49,6 +49,8 @@ How will I know this is working (or not)?
 | 0009 | [Per-repo `.coderabbit.yaml` propagation; two-failure-mode diagnostic model](0009-cr-yaml-propagation-architecture.md) | active |
 | 0010 | [Public mirror via allowlist sync; internal repo stays private](0010-public-mirror.md) | active |
 | 0011 | [2026-08 insights-report adoptions: evidence rules, scope discipline, batched review, /ship extraction](0011-insights-adoptions.md) | active |
+| 0012 | [Requirements register in the build repo, enforced by a traceability gate](0012-requirements-register-and-traceability-gate.md) | active |
+| 0013 | [Personal skills live here and publish through the mirror; Claude Code and Copilot only](0013-personal-skill-library.md) | active |
 
 ## How to use ADRs
 

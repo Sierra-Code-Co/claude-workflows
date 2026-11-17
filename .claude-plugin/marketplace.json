@@ -1,0 +1,21 @@
+{
+  "name": "sierra-code-co",
+  "owner": {
+    "name": "Sierra Code Co.",
+    "url": "https://github.com/Sierra-Code-Co"
+  },
+  "metadata": {
+    "description": "Skills Sierra Code Co. uses every day and teaches with. Source and docs: https://github.com/Sierra-Code-Co/claude-workflows"
+  },
+  "plugins": [
+    {
+      "name": "writing-check",
+      "source": "./",
+      "strict": false,
+      "description": "Check a draft for stock AI phrasing and formulaic structure before a person reads it. Phrase list plus a packed slop-guard; nothing to install beyond python3 3.11+.",
+      "license": "MIT",
+      "homepage": "https://github.com/Sierra-Code-Co/claude-workflows/tree/main/dotfiles/claude/skills/writing-check",
+      "skills": ["./dotfiles/claude/skills/writing-check"]
+    }
+  ]
+}

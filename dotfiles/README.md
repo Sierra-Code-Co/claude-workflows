@@ -16,6 +16,7 @@ Canonical versions of files that live in `~/.claude/` and need to stay in sync a
 | ----------------------------- | --------- | ------------------------------------------------------------------------ |
 | `claude/CLAUDE.md`            | symlink   | Global instructions Claude reads in every session.                       |
 | `claude/settings.example.json` | template  | Actual `settings.json` is gitignored. Fill in `~/.claude/settings.json` from this template on each machine. |
+| `claude/skills/<name>/`       | symlink   | Personal skills (ADR-0013). `new-machine.sh` links each to `~/.claude/skills/<name>`. Everything here is published by the public mirror, so nothing private goes in. |
 
 ## Why settings.json is a template (not symlinked)
 

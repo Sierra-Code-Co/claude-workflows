@@ -21,8 +21,21 @@ permissions:
 jobs:
   pytest:
     runs-on: ubuntu-24.04
+    # The vendor-guard suites at the end of this job run fixtures that `sleep 600`
+    # on purpose, and a lost cap is the exact regression they exist to catch — so
+    # unbounded, the failure this job is built to detect would instead run toward
+    # the 6-hour default. A job that proves bounds needs one of its own. Raised as
+    # a finding against the template's copy of this workflow on 2026-09-01 and
+    # applied here too, because the hazard is in the fixtures, not in one repo.
+    timeout-minutes: 25
     steps:
+      # `persist-credentials: false`: nothing in this job touches a remote, and the
+      # guard suites build throwaway git repositories and run fake binaries off a
+      # temporary PATH. The default writes the job token into .git/config, right
+      # where those fixtures' own git commands run for the rest of the job.
       - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
       - uses: actions/setup-python@v5
         with:
           # Matches the >= 3.10 floor asserted by check_deps.py.
@@ -189,3 +202,177 @@ jobs:
           # second, deliberate edit here.
           RPV2_UNPROVEN_OK: reviewers
         run: bash tests/proofs/run-all.sh
+
+      # The two pre-push guard suites are shell, not pytest, so `pytest tests/`
+      # never touched them and until 2026-08-31 NOTHING here did — they ran only
+      # on whichever laptop ran them by hand. That is this file's own header
+      # complaint about the pytest suite, one directory over: a check that
+      # reports to nobody is indistinguishable from no check. `preflight` has
+      # eleven review rounds of fail-open history behind it and `bounded` exists
+      # because the vendor CLI can hang forever; both are exactly the kind of
+      # guard that must not be allowed to rot silently.
+      #
+      # Neither needs the CodeRabbit CLI, a network, or a provider key: the
+      # bounded suite drives fake `coderabbit` binaries on PATH, and the
+      # preflight suite builds scratch git repositories. Both are offline and
+      # deterministic. Runtime is roughly 45s and 4s respectively; the 45s is
+      # mostly deliberate sleeping, because a fake that never hangs would remove
+      # the only behaviour worth guarding.
+      #
+      # Unpiped and unchained on purpose — one step per suite, so a red one is
+      # its own X rather than a status swallowed by a pipeline or masked by an
+      # earlier `&&`.
+      #
+      # `if: ${{ !cancelled() }}` on both, and the comment above is why it is
+      # needed rather than belt-and-braces. A step with no `if:` carries an
+      # implicit `success()`, so an earlier red step SKIPS these two — which is
+      # exactly the "masked by an earlier `&&`" failure the paragraph above claims
+      # separate steps avoid. It did not avoid it; the masking moved from the shell
+      # to the workflow engine and kept reading as a pass, because a skipped guard
+      # suite renders as a grey tick and not as an X. Raised by the PR-side review
+      # on 2026-09-01, in the same round as the poll-past-deadline defect, and it is
+      # the same shape: a check whose absence is indistinguishable from its success.
+      #
+      # `!cancelled()` rather than `always()`: a cancelled run should stop, and
+      # `always()` would keep sleeping through the fakes for another ~90s after
+      # someone hit cancel.
+      - name: Run the preflight-vendor-review guard suite
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-preflight-vendor-review.sh
+
+      # This step is also the ONLY place the `setsid` branch of
+      # bounded-vendor-review.sh is exercised by a real setsid. macOS has none,
+      # so every developer run takes the fallback; see that suite's header for
+      # the shim measurement that stood in for this before CI existed.
+      - name: Run the bounded-vendor-review guard suite
+        if: ${{ !cancelled() }}
+        run: bash scripts/test-bounded-vendor-review.sh
+
+      # ...and the step above is the only place the setsid branch runs, which left the
+      # OTHER branch running nowhere. Added 2026-09-01, raised by the PR-side review.
+      # On ubuntu-24.04 every case takes `setsid`, so the FALLBACK — the one every
+      # macOS run takes, and the one defects 2 and 8 both lived in — was exercised on
+      # a laptop by hand and by nothing else. Those two are the orphan pair: a kill
+      # that reached the child and left the grandchildren holding the vendor socket.
+      # Without `setsid` the CLI is not a process-group leader, so `kill -- -$pid`
+      # fails and the enumerated `pgrep -P` tree walk is the ENTIRE kill mechanism
+      # rather than a backstop. Its suite has to run somewhere that is true.
+      #
+      # ABSENCE CANNOT BE SHIMMED BY PRECEDENCE. The branch predicate is
+      # `command -v setsid`, so a fake `setsid` earlier on PATH leaves it TRUE and this
+      # step would silently repeat the branch above while reporting the one below — the
+      # failure class both guards exist to remove. The only way in is a PATH with no
+      # setsid anywhere on it, hence the symlink farm; the `command -v` check after it
+      # is the load-bearing half, because a farm that quietly kept setsid would report
+      # a pass for a path it never entered. Proven both ways on 2026-09-01 with a fake
+      # setsid ahead of PATH: with the exclusion, exit 0; with the exclusion neutered,
+      # the refusal fires and the step is red.
+      #
+      # Linked by EXECUTABILITY, not by name, because that is what PATH resolution
+      # does. Measured the first time this ran: a 644 `~/.local/bin/env` (a uv
+      # artifact, not a binary) sat earlier on PATH than /usr/bin/env, the farm linked
+      # the name, and 14 cases exited 126. Failing loudly is the safe direction, but
+      # it fails for a reason with nothing to do with setsid.
+      - name: Run the bounded-vendor-review guard suite with no setsid (the macOS path)
+        if: ${{ !cancelled() }}
+        run: |
+          shim="$RUNNER_TEMP/no-setsid-bin"
+          rm -rf "$shim"; mkdir -p "$shim"
+          printf '%s\n' "$PATH" | tr ':' '\n' | while read -r d; do
+            [ -n "$d" ] || continue
+            [ -d "$d" ] || continue
+            for f in "$d"/*; do
+              { [ -f "$f" ] && [ -x "$f" ]; } || continue
+              b=${f##*/}
+              if [ "$b" = setsid ]; then continue; fi
+              [ -e "$shim/$b" ] || ln -s "$f" "$shim/$b" 2>/dev/null || true
+            done
+          done
+          export PATH="$shim"
+          if command -v setsid >/dev/null 2>&1; then
+            echo "SHIM FAILED: setsid still reachable at $(command -v setsid)" >&2
+            echo "this step would repeat the setsid branch and report it as the fallback" >&2
+            exit 1
+          fi
+          # A REQUIRED-COMMAND FLOOR, because the farm above links binaries one at a
+          # time and any link it fails to make turns this step into a suite failure
+          # whose message says setsid — the exact outcome the check above exists to
+          # prevent, arriving by a different route. internal-speckit-template has
+          # carried this floor since 2026-09-01 and THIS repo did not, so the
+          # identical suite ran behind it in one of the two places it lives; the same
+          # asymmetry the shellcheck step below was added to close. The derivation,
+          # and the two rounds of half-enumeration it took, are recorded once in that
+          # repo's copy of this step rather than restated here, for the reason
+          # scripts/vendor-gate-defect-log.md exists. `[ -x ]` on the RESOLVED path
+          # rather than a bare `command -v`: a link to a 644 file is ACCEPTED by bare
+          # `command -v` under bash 3.2 and dash and declined under sh and zsh, and a
+          # floor whose verdict moves with the interpreter is not one.
+          #
+          # `git` is in the list because it is the ONE NAME WHOSE ABSENCE THIS FLOOR
+          # COULD NOT HAVE CAUGHT AFTER THE FACT: `git rev-parse --abbrev-ref HEAD`
+          # exits 127 when unreachable, and the round-key call site in
+          # scripts/bounded-vendor-review.sh deliberately reads that as its
+          # `no-branch` fallback — so the suite carries on with a directory-only key,
+          # every round-cap case silently shares one budget, and the step stays GREEN
+          # while fourteen cases mean something other than what they say. Degrades
+          # instead of erroring, which is this repo's recurring defect one layer out
+          # from the one the floor was added to fix. Its own list needed three rounds
+          # in the template repo before it held, all three recorded there.
+          for req in bash env git grep sleep mkdir cat awk head chmod date tr tail \
+                     pgrep find mktemp sort seq sed rm cut ls dirname touch comm \
+                     wc cksum ps id; do
+            p=$(command -v "$req" 2>/dev/null) || p=
+            if [ -n "$p" ] && [ -x "$p" ]; then continue; fi
+            echo "SHIM FAILED: '$req' is not reachable-and-executable through the" >&2
+            echo "farm, so this step would fail the suite for a reason with nothing" >&2
+            echo "to do with setsid" >&2
+            exit 1
+          done
+          # `find`, not `ls | wc -l`, because SC2012 — actionlint runs shellcheck
+          # over every `run:` block here, so this line is linted like a script.
+          # (Do not start that sentence with the linter's own name: a comment
+          # whose first word is that name parses as a DIRECTIVE, which is
+          # SC1072/SC1073 and how this step was red a moment ago.)
+          echo "no setsid on PATH; $(find "$shim" -maxdepth 1 -type l | wc -l) links"
+          bash scripts/test-bounded-vendor-review.sh
+
+      # Added 2026-09-01. These four files are kept BYTE-IDENTICAL with the copies
+      # in internal-speckit-template, whose `guards` workflow shellchecks them —
+      # and this one did not, so the identical twin was linted in exactly one of
+      # the two places it lives. That asymmetry was not theoretical: the template's
+      # job went red on SC2317 across the whole `on_signal` body while this repo
+      # stayed green on the same bytes, and the local shellcheck (0.11.0) emitted
+      # nothing at all. Two repos, three verdicts, one file.
+      #
+      # `if: !cancelled()` for the reason the two steps above give: a skipped lint
+      # renders as a grey tick, which reads as a pass.
+      - name: shellcheck the guards and their suites
+        if: ${{ !cancelled() }}
+        run: |
+          # The runner image ships shellcheck; install only if it does not, so the
+          # ordinary path has no network dependency. An `if`, not
+          # `command -v ... || apt-get update && apt-get install`, because
+          # `A || B && C` parses as `(A || B) && C` and would install every run.
+          if ! command -v shellcheck >/dev/null 2>&1; then
+            sudo apt-get update -qq
+            sudo apt-get install -y -qq shellcheck
+          fi
+          # `--version` is printed because IT IS PART OF THE FINDING, not decoration.
+          # This step runs at the DEFAULT severity (style), so info-tier codes fail it,
+          # and the runner's 0.9.0 does not emit the same codes as the 0.10+ that brew
+          # ships. A trap-invoked function is the known case: 0.9.0 reports SC2317 on
+          # every line of the body, 0.11.0 reports SC2329 once on the definition, so a
+          # laptop running `shellcheck -S warning` sees NEITHER and reads clean while
+          # this step is red. That is not hypothetical — it is how the round that added
+          # `release_claim` got here. To reproduce this step's exact verdict locally,
+          # match the version rather than the flags:
+          #   curl -sL -o /tmp/sc.tar.xz https://github.com/koalaman/shellcheck/releases/download/v0.9.0/shellcheck-v0.9.0.darwin.x86_64.tar.xz
+          #   tar -xJf /tmp/sc.tar.xz -C /tmp && /tmp/shellcheck-v0.9.0/shellcheck scripts/*vendor-review.sh
+          # (x86_64 is the only darwin asset for 0.9.0; it runs under Rosetta on arm64.)
+          # Deliberately NOT pinned to one version: two versions disagreeing is the
+          # coverage, and pinning would hide whichever code the pin does not emit.
+          shellcheck --version
+          shellcheck scripts/preflight-vendor-review.sh \
+                     scripts/test-preflight-vendor-review.sh \
+                     scripts/bounded-vendor-review.sh \
+                     scripts/test-bounded-vendor-review.sh

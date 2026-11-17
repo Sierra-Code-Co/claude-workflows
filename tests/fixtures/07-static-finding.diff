@@ -1,0 +1,10 @@
+diff --git a/src/tool.py b/src/tool.py
+new file mode 100644
+index 0000000..1c1c1c1
+--- /dev/null
++++ b/src/tool.py
+@@ -0,0 +1,4 @@
++import os
++
++def total(a, b):
++    return a + b

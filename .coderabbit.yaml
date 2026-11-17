@@ -1,13 +1,37 @@
 # yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
 
-# CodeRabbit configuration for claude-workflows
+# CodeRabbit configuration for internal-claude-workflows
 # Personal workflow + ADR repo. Docs-heavy. Goal: catch real issues
 # (broken commands, factual errors, cross-doc inconsistency) and skip
 # prose nits that don't matter for personal docs.
 #
-# Workflow: run `coderabbit review --plain --base main` pre-push
-# (see ~/.claude/CLAUDE.md "Pre-push" section). PR-side review is
-# the safety net.
+# Workflow: the pre-push gate is NOT `coderabbit review` on its own. It is the
+# untracked-file preflight, then review-plan-v2's static analyzers, then the
+# vendor leg, chained so a failure stops the next step:
+#
+#   preflight \
+#     && review-plan-v2 --static-only --plain --base main \
+#     && preflight \
+#     && coderabbit review --base main --include-untracked
+#
+# `preflight` appears twice on purpose. The first call fails fast; the second
+# runs immediately before the send, because the gap between them is the entire
+# runtime of the static leg and an untracked file appearing in it would be sent
+# to the vendor having been scanned by nothing.
+#
+# `preflight` and the reasoning for each link are in ~/.claude/CLAUDE.md
+# "Pre-push" and in .claude/skills/review-plan-v2/SKILL.md. Until 2026-08-29
+# this comment named the vendor leg alone, which is a documented workflow
+# that sends the diff off the machine with no secret scan in front of it —
+# gitleaks runs in the static leg, and a scan after the egress prevents
+# nothing. Anyone following this file rather than CLAUDE.md got that order.
+# CodeRabbit caught it.
+#
+# On the flags: plain text is already the default; `--plain` is NOT a flag and
+# exits 1 with `unknown option`, which is also the exit code for "found
+# actionable issues" — so a caller gating on the status reads a reviewer that
+# never ran as one that flagged something. This comment said `--plain` from the
+# day it was written until 2026-08-28. PR-side review is the safety net.
 
 language: 'en-US'
 early_access: false
@@ -39,8 +63,10 @@ reviews:
     # `specify init` and re-vendored on every upgrade. Reviewing it locally
     # produces findings only upstream can fix (filed: spec-kit#4269-#4273) and
     # blew review-plan-v2's run budget (124 tasks) on the v1.0.1 upgrade.
-    # gitleaks CI still scans these paths; the intentional local delta is the
-    # disable-model-invocation flag, re-applied mechanically. Residual risk
+    # gitleaks CI still scans these paths. There is no longer a local delta:
+    # the disable-model-invocation re-apply was reversed on 2026-08-28 and the
+    # template now asserts upstream's `false`, so a `true` in a vendored
+    # SKILL.md is a finding rather than expected. Residual risk
     # accepted: a compromised upstream release could land unreviewed — the
     # mitigation is the version-pinned re-vendor (SPECKIT_VERSION tag in the
     # template's setup.sh), reviewed release-by-release, not per-diff.
@@ -59,6 +85,31 @@ reviews:
       - 'DO NOT MERGE'
 
   path_instructions:
+    - path: 'scripts/assert-skill-invocation.sh'
+      instructions: |
+        This script deliberately REWRITES `disable-model-invocation: true`
+        to `false` in skill frontmatter rather than only validating it, and
+        the rewrite is the feature. Do NOT propose replacing it with a
+        validate-and-fail check; that has been proposed twice and declined,
+        with the reason recorded in the script's own header. Failing would
+        hand back the chore this replaced (11 files reverted by hand per
+        project, once per re-vendor), and a gate whose remedy is "go edit 11
+        files" gets skipped.
+
+        DO flag, because these are the ways it can silently do nothing or
+        the wrong thing:
+        - A check that a value in the file BODY could satisfy instead of the
+          YAML frontmatter, or a rewrite not bounded to the frontmatter line
+          range. This fleet's docs write the key inside fenced code blocks,
+          so body matches are prose, not configuration.
+        - A key spelling that is valid YAML but unmatched, so the file reads
+          as having no key and is skipped silently. Quoted keys were exactly
+          this bug.
+        - A path where the script exits 0 having examined nothing, or
+          reports a count that includes a skill asserting the opposite value.
+        - A KEEP_DISABLED exemption accepted on the strength of the
+          directory name without verifying the flag.
+
     - path: '**/*.md'
       instructions: |
         This is a personal workflow + ADR repository — docs only, no
@@ -101,6 +152,55 @@ reviews:
         - Destructive operations should require confirmation
         - Don't suggest "consider adding tests" — these are personal
           one-off scripts run interactively.
+
+    # The four entries below were `high_risk_paths` in .review-plan-v2.yaml
+    # until 2026-08-28. That key selected files for the retired gpt-5.5
+    # cascade and now drives nothing at all, so the briefs it carried were
+    # about to become dead prose in a config nothing reads. Moved here rather
+    # than deleted: each one records a failure that actually happened in this
+    # code, and a reviewer with that context finds the recurrence.
+    - path: 'scripts/review_plan_v2/providers/**'
+      instructions: |
+        Provider clients hold live API keys and are the only code here
+        that talks to an external service. Check: is the outgoing payload
+        shape one the target model actually accepts (the gpt-5.x family
+        rejects `max_tokens` outright and needs `max_completion_tokens`)?
+        Is every non-2xx body captured and passed to the operator rather
+        than discarded? Is every error path routed through
+        `_errors.redact` before it reaches a terminal — google.py passes
+        its API key as a URL query parameter, so echoed request context
+        is a live credential? Does an HTTP 200 with empty content get
+        treated as a failure rather than a clean review?
+
+    - path: 'scripts/review_plan_v2/telemetry.py'
+      instructions: |
+        FR-015 forbids prompt content, diff content, and message bodies
+        in calls.jsonl. The allowlist is the only thing enforcing it.
+        Check: does a new key admit free text? `CallResult.error_detail`
+        in particular must never become loggable — it exists to carry a
+        provider error body to stderr and nowhere else.
+
+    - path: 'scripts/review_plan_v2/orchestrator.py'
+      instructions: |
+        Owns run health and the exit code, which every pre-push hook and
+        CI caller gates on. Exit 0 must mean "reviewed and clean", never
+        "did not run" — that conflation hid a dead cascade leg for three
+        months, and on 2026-08-28 it let `--static-only
+        --no-static-analyzers` exit 0 whenever `--dry-run` or an empty
+        diff returned first. Check the ORDER of the early returns, not
+        just the presence of a check: a guard on argv placed after any
+        return that can answer for it is not a guard. Flag any new check
+        that reads the diff, the config, or an analyzer result to decide
+        something knowable from argv alone.
+
+    - path: 'tests/support/fixture_server.py'
+      instructions: |
+        The integration suite's only stand-in for a real provider. A
+        routing pattern that fails to match makes a leg 404 on every test
+        while the suite stays green — exactly what happened to the Gemini
+        path when its regex omitted the query string. Check: does each
+        provider's real URL shape, including query parameters, actually
+        match?
 
     - path: 'dotfiles/claude/CLAUDE.md'
       instructions: |

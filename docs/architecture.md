@@ -9,7 +9,7 @@ flowchart TD
     A["<b>internal-claude-workflows</b> (private)<br/>global config · ADRs · experiments<br/>fleet propagation scripts · feature specs"]
     B["<b>internal-speckit-template</b> (public)<br/>stable bootstrap: skills, .specify/,<br/>CLAUDE.md skeleton, setup.sh"]
     C["<b>Active projects</b> (each its own repo)<br/>inherit template at creation +<br/>project-specific overrides"]
-    P["<b>claude-workflows</b> (public, this repo)<br/>curated mirror + docs"]
+    P["<b>claude-workflows</b> (public, this repo)<br/>curated mirror + docs<br/>personal skill library: plugin list, Copilot zips"]
 
     A -- "promote matured patterns" --> B
     B -- "newproject → clone at creation" --> C
@@ -38,6 +38,8 @@ The question to ask before editing anything: **which layer is the source of trut
 3. Prints manual next-steps for MCP installs, which need per-machine credentials.
 
 The dividing line: **things that are identical everywhere get symlinked to the repo; things that are per-machine get a tracked `.example` and a gitignored real file.** Credentials (`~/.claude.json`, `.env`) are never committed from anywhere.
+
+Personal skills follow the same rule (ADR-0013). Each lives in `dotfiles/claude/skills/<name>/` and `new-machine.sh` links it to `~/.claude/skills/<name>`. That folder is also what the public mirror publishes as a Claude Code plugin and as a Copilot upload zip, so there is one copy of each personal skill. Shared *project* skills stay in the template, as below.
 
 ## Fleet propagation
 

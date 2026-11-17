@@ -627,10 +627,21 @@ MUTATIONS = [
     # in a dot-directory `markdownlint .` never descends into. So the mutation
     # plants a violation THERE, which the wide scope catches and the narrow one
     # would not.
+    #
+    # The anchor is `## Out of scope` because it is the heading that has
+    # survived every rewrite of that file. It used to be `## When to invoke`,
+    # which a 2026-08-29 rewrite of the skill deleted — and the mutation then
+    # could not apply, so this guard was neither shown to work nor shown to
+    # fail. Nothing about the rewrite was wrong; the proof was anchored to
+    # prose. Only run-all.sh's MUTATION DID NOT APPLY check caught it, which is
+    # that check earning its place: a needle that silently stops matching turns
+    # a proof into a green that proves nothing. If this anchor disappears too,
+    # repoint it at another heading rather than adding one back to satisfy a
+    # test — any heading in this file serves, the file itself is the point.
     ("a violation in our own dot-directory skill goes unseen",
      ".claude/skills/review-plan-v2/SKILL.md",
-     "## When to invoke",
-     "## When to invoke\n\n```\nan unlabelled fence: MD040\n```",
+     "## Out of scope",
+     "## Out of scope\n\n```\nan unlabelled fence: MD040\n```",
      "test_the_markdownlint_baseline_stays_at_zero"),
 
     ("a markdownlint violation creeps back in",

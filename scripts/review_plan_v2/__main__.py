@@ -27,6 +27,14 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--max-concurrency", type=int, default=None, help="Cap on parallel reviewer x chunk x provider calls (default 4)")
     p.add_argument("--dedup-window", type=int, default=None, help="Line-overlap window for aggregator dedup (default 5)")
     p.add_argument("--no-static-analyzers", action="store_true", help="Skip gitleaks/markdownlint/etc")
+    p.add_argument(
+        "--static-only",
+        action="store_true",
+        help="Run only the deterministic analyzers (gitleaks/markdownlint/actionlint/"
+             "shellcheck/ruff/structural). No reviewer runs, no provider is called, "
+             "nothing is billed, and no diff leaves the machine. This is the "
+             "supported pre-push mode as of 2026-08-28",
+    )
     p.add_argument("--no-cascade", action="store_true", help="Disable Claude cascade on high-risk paths")
     p.add_argument("--max-cost-usd", type=float, default=None, help="Hard cost cap; abort if estimate exceeds (FR-021)")
     p.add_argument("--dry-run", action="store_true", help="Print what would be reviewed without invoking LLMs")

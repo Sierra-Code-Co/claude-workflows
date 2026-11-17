@@ -58,3 +58,8 @@ build/
 # baseline cascades. Keep settings.local.json out of git so CR CLI and
 # git status stop re-flagging it.
 .claude/settings.local.json
+
+# The Copilot upload zips are committed on purpose (spec 004): people download
+# them from the public mirror, and tests/unit/test_copilot_zip.py fails if one
+# differs from a fresh build. A global `dist/` ignore would otherwise hide them.
+!/dist/

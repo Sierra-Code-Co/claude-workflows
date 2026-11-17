@@ -2,20 +2,53 @@
 
 A **skill** is a packaged instruction set Claude Code loads on demand: a directory containing a `SKILL.md` with YAML frontmatter (`name`, `description`, options) followed by the instructions themselves. When a skill is installed, you can invoke it as a slash command (`/review-plan`), and Claude can invoke it automatically when the description matches the task — unless you turn that off (below).
 
+The format is an open standard ([agentskills.io](https://agentskills.io/specification)), and Microsoft 365 Copilot reads it too. Skills here use only the standard's frontmatter fields (`name`, `description`, `license`, `compatibility`, `metadata`), because claude.ai uploads and Copilot reject anything else.
+
 ## Where skills live
 
 | Scope | Path | Use for |
 | --- | --- | --- |
 | Project | `<repo>/.claude/skills/<name>/SKILL.md` | Anything the whole team (or every clone) should have. Checked into the repo. |
 | Personal | `~/.claude/skills/<name>/SKILL.md` | Skills that follow *you* across every project. |
+| Plugin | installed by `/plugin install` | Skills someone else publishes and you want to keep updated. |
 
-Installation is file-copying — there is no registry step. Copy the skill directory into one of those locations and it's available in the next session.
+## Three ways to install
+
+### 1. From the Sierra Code Co. plugin list (Claude Code)
+
+This repo is a plugin marketplace. In Claude Code:
+
+```text
+/plugin marketplace add Sierra-Code-Co/claude-workflows
+/plugin install writing-check@sierra-code-co
+```
+
+The skill is then available as `/writing-check:writing-check`, and Claude reaches for it on its own when a draft needs checking. It needs nothing installed beyond `python3` 3.11 or newer.
+
+Updates: third-party marketplaces do not update in the background unless you turn that on, so update now and then: in Claude Code run `/plugin marketplace update sierra-code-co`, or from a shell `claude plugin update writing-check@sierra-code-co`. The plugin entry has no `version` field on purpose: you always get the latest commit of this repo, and nobody can forget to bump a number (ADR-0013).
+
+### 2. As a Microsoft 365 Copilot skill
+
+Download [`dist/copilot/writing-check.zip`](../dist/copilot/writing-check.zip). In Copilot (browser or the Microsoft 365 app): **Agents**, **More agents**, **Add**, **Upload skill**, and pick the zip. It has `SKILL.md` at its root, which is what the upload dialog requires.
+
+Copilot runs skill scripts in a sandbox with no network and no package installs. Where the scripts cannot run, the skill's instructions tell Copilot to apply the same rules by reading. The tested result is recorded in [`specs/004-skill-library/research.md`](../specs/004-skill-library/research.md).
+
+On Windows, `.md` files have no default program (Windows may offer Acrobat). To read `SKILL.md` before uploading, open Notepad, set the file filter to **All files**, and open it from there.
+
+### 3. By copying (any project)
+
+Copy the skill directory into one of the locations above and it is available in the next session.
 
 ```bash
 # install one skill from the template into the current project
 git clone https://github.com/Sierra-Code-Co/internal-speckit-template /tmp/speckit-template
+mkdir -p .claude/skills
 cp -R /tmp/speckit-template/.claude/skills/review-plan .claude/skills/
 ```
+
+## Personal skills: one copy, linked
+
+The skills I use myself live in this repo under `dotfiles/claude/skills/<name>/`, and `scripts/new-machine.sh` links each one to `~/.claude/skills/<name>`, the same way `dotfiles/claude/CLAUDE.md` *is* `~/.claude/CLAUDE.md`. Editing the skill in either place edits the one copy, `git diff` shows it, and every machine gets it on the next pull. The plugin list and the Copilot zip are built from that same folder, so what you install is what I run.
 
 ## Getting the full set: the template
 
@@ -23,11 +56,17 @@ Rather than installing skills one at a time, new projects here start from [inter
 
 Note the dependency: the `speckit-*` skills read templates and scripts from `.specify/` — installing those skills without that directory gives you commands that can't find their machinery. Take the template wholesale, then delete what you don't want.
 
-## One deliberate frontmatter choice: `disable-model-invocation: true`
+## A frontmatter choice, reversed: `disable-model-invocation`
 
-Every skill in this fleet sets it. Default Claude Code behavior lets the model auto-invoke any skill whose description matches the task — which sounds helpful until `/speckit.specify` fires because you *mentioned* a spec, or a heavyweight workflow starts because your question resembled its trigger. With `disable-model-invocation: true`, a skill runs only when a human types the slash command. Pipelines that chain phases (like `/feature`) invoke the next skill explicitly, so nothing is lost — but nothing runs by surprise.
+Every skill in this fleet used to set `disable-model-invocation: true`. Default Claude Code behavior lets the model auto-invoke any skill whose description matches the task, and the reasoning was that this sounds helpful until `/speckit.specify` fires because you *mentioned* a spec, or a heavyweight workflow starts because your question resembled its trigger.
 
-The general form of the lesson: **workflow-shaped skills should be opt-in commands; only knowledge-shaped skills should auto-trigger.**
+**As of 2026-08-28 the default is `false`, and the reversal is worth reading as a lesson in its own right.** The blanket rule failed the only test that matters: it was manually undone in every instance. Each new project arrived with all eleven skills unreachable by the model, and the operator flipped them back by hand — one project had all eleven flipped, the next had ten of eleven, and that missing eleventh is how a fleet drifts. A default reverted in every instance is not a safety property, it is a chore.
+
+It also inverted the value of the descriptions. Every skill is described in terms of when a model should reach for it, and `true` made every one of those sentences unreachable. The pre-push review gate is the clearest case: a skill Claude cannot reach is a skill Claude will not use at the moment it should.
+
+The concern was real, though, for a narrow class — so it is handled per-skill instead of fleet-wide. `/ship` keeps `disable-model-invocation: true`, because it merges PRs, pushes branches, and runs promote/deploy steps, and externally visible, hard-to-reverse actions are the one category that must not fire on a model's judgement that the moment looked right. The reason is recorded in `ship/SKILL.md`'s own frontmatter and in `scripts/assert-skill-invocation.sh`'s `KEEP_DISABLED` list, which enforces the default and fails loudly if it examined nothing.
+
+The general form of the lesson: **a fleet-wide default that every instance overrides is a bug in the default, not discipline in the fleet.** Narrow the rule to the skills whose actions are irreversible, and state the reason next to the flag.
 
 ## Managing skills across many repos
 

@@ -21,6 +21,7 @@ import types
 
 import pytest
 from review_plan_v2 import orchestrator
+from review_plan_v2.types import RunConfig
 
 VALID = """\
 version: 1
@@ -68,9 +69,20 @@ def _run_until_registry(repo: pathlib.Path, monkeypatch):
 
 
 def _cfg():
-    return types.SimpleNamespace(
-        strict_config=False, base="main", scope=None, path_filters=[],
-    )
+    """A REAL RunConfig, not a namespace carrying the four fields I remembered.
+
+    It was a `SimpleNamespace(strict_config, base, scope, path_filters)` until
+    2026-08-28, and that double modelled an object the real system cannot
+    produce: `load_config` returns a fully populated dataclass. It worked only
+    because nothing between startup and the diff-capture sentinel happened to
+    read a fifth attribute, so it silently encoded "the run reads exactly these
+    four fields in this window" as a precondition of the test. Adding one
+    startup-time check then broke all six tests with an AttributeError that says
+    nothing about the ordering property they exist to pin.
+
+    A real RunConfig cannot drift from the thing it stands in for.
+    """
+    return RunConfig(strict_config=False, base="main", scope="all")
 
 
 def test_an_invalid_registry_stops_the_run_before_the_diff(repo, monkeypatch, capsys):

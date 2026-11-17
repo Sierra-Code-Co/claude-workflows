@@ -88,6 +88,13 @@ class RunConfig:
     max_concurrency: int = 4
     dedup_window: int = 5
     no_static_analyzers: bool = False
+    #: Run the deterministic analyzers and stop, calling no provider at all.
+    #: This is the tool's surviving half as of 2026-08-28: the analyzers are
+    #: free, fast, and bounded in memory, whereas the model legs were billed
+    #: separately for a subset of what the PR-side reviewer finds anyway. It is
+    #: NOT `no_cascade` plus a small diff — no reviewer is constructed, so there
+    #: is no per-file output to buffer and no state lock to take.
+    static_only: bool = False
     no_cascade: bool = False
     #: Provider tag for the BROAD pass — the four reviewers that see every file.
     #: Was hardcoded to deepseek in four factories and three orchestrator dicts.
@@ -195,6 +202,7 @@ def merge_cli_into_config(args: Any, base: RunConfig) -> RunConfig:
     base.no_color = bool(base.no_color) or bool(args.no_color)
     base.force_full = bool(base.force_full) or bool(args.force_full)
     base.no_static_analyzers = bool(base.no_static_analyzers) or bool(args.no_static_analyzers)
+    base.static_only = bool(base.static_only) or bool(getattr(args, "static_only", False))
     base.no_cascade = bool(base.no_cascade) or bool(args.no_cascade)
     base.no_verify = bool(base.no_verify) or bool(getattr(args, "no_verify", False))
     base.dry_run = bool(base.dry_run) or bool(args.dry_run)

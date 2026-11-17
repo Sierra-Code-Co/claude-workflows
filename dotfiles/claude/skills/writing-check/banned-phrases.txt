@@ -1,0 +1,283 @@
+# Banned words and phrases for client- and participant-facing prose.
+# Read by scripts/prose-lint.sh: one extended regex per line, matched
+# case-insensitively. Lines starting with # and blank lines are skipped.
+# \b marks a word boundary. A line starting "# read-by-hand:" lists words and
+# phrases that are tells only in some senses or some places; they are not
+# checked mechanically, and a test makes sure every slop-guard word lands
+# either here as a pattern or on one of those lines.
+# Sources: Jason Belk's own flags (2026-11-05, 2026-11-16); Wikipedia,
+# "Signs of AI writing" (raw page read 2026-11-16, CC BY-SA, words only);
+# slop-guard 0.5.0 by Eric W. Tramel (MIT); the other tools credited below.
+#
+# read-by-hand: key, highlight, valuable, practical, challenge, clearer, matters
+
+# --- Claude's own framing devices (Jason, 2026-11-16: "a maxed-out Claude naming convention")
+\bonly you (can|could|know|have|decide|get to)\b
+\b(you|he|she|they) (may|might) want to know\b
+\bthings you (may|might|should) (want to )?know\b
+\bworth (knowing|noting|flagging|a look|mentioning|calling out|saying)\b
+\bone more thing\b
+\b(you may|you might|you will|you'll) run into\b
+\bhere'?s (the thing|what|why|how)\b
+\bthe short version\b
+\bthe honest (answer|version|truth)\b
+\bhonestly\b
+\bgenuinely\b
+\btruly\b
+\bthe (real|hard|tricky) part\b
+\bthe (catch|upshot|kicker)\b
+\bbottom line\b
+\bload.bearing\b
+\bheavy lifting\b
+\bmove the needle\b
+\bgame.?chang(er|ing)\b
+\bnorth star\b
+\bat the end of the day\b
+\beither works\b
+\bin plain (words|terms|english)\b
+\bmake no mistake\b
+\bto be clear\b
+\bthat said\b
+\bin short\b
+\bsimply put\b
+\bquick note\b
+\bnothing more,? nothing less\b
+\bwalk away with\b
+\btakeaways?\b
+\bthe (whole|real) point\b
+\blet'?s be (clear|honest)\b
+\blean into\b
+\bdouble down\b
+
+# --- Claude's stage directions in presenter notes (Jason, 2026-11-16: "Name them once." in a workshop's notes).
+# No published source lists these; this section is ours.
+\bname (it|them|that|this)( once| out loud)?\.
+\bsay (it|this|that) (plainly|once|out loud|clearly|slowly)\b
+\bplainly\b
+\b(that|this) is the (lesson|point|whole point|move)\b
+\b(exactly|precisely|really) the (lesson|point)\b
+\b(that|this|it)( is|'s) the difference between\b
+\b(that|this)'s the (lesson|point|whole point|move)\b
+\bnobody asked\b
+\becho of\b
+\blet (it|that) (land|sink in|breathe)\b
+\bsit with (it|that|this)\b
+
+# --- Claude tells from published tools and studies (read 2026-11-16): slop-guard (MIT),
+# vale-ai-tells / AiTells (MIT), blader/humanizer (MIT), avoid-ai-writing (MIT), and 2026
+# write-ups of a corpus study of Claude Opus 5.5 output. Ratios in comments are from that study.
+\b(this|that|it) matters\b
+\bwhy [a-z]+( [a-z]+)? matters\b
+\bmatters more\b
+\bwhat (really|truly) matters\b
+\bis more than (a|an|just)\b
+\blooking ahead\b
+\badds? (another|a new) layer\b
+\bperhaps the most\b
+\bwhat comes next\b
+\bfull stop\b
+\bstat(ed|ing) (plainly|fairly)\b
+\bcarr(y|ies|ying|ied) the (argument|point|weight)\b
+\bthe trap\b
+\bbecomes a trap\b
+\bbelt[- ]and[- ](suspenders|braces)\b
+\bearn(s|ed|ing)? (its|their) keep\b
+\bsmoking gun\b
+\bhonest (take|read|update|assessment|look)\b
+\bin all honesty\b
+(^|\. )not an? [^.]{1,30}\. an?[[:space:]]
+\b(this|that|it) (isn't|is not)[^.]{0,80}\.[[:space:]]+(it's|it is|that's|the real)\b
+\bin theory\b.{0,60}\bin practice\b
+\bdeliberate choice\b
+\bi want to be upfront\b
+\bto be (fully )?transparent\b
+\bwould rather flag\b
+\bstructurally\b
+\bcleanly\b
+\bread that again\b
+\bhere'?s where (it|things) gets?\b
+\bthe best part\b
+\bplot twist\b
+\blet'?s (dive|break|explore|unpack|take a look)\b
+\bi'?m not saying\b
+\bdon'?t get me wrong\b
+\ba tempting approach\b
+\bthe (truth|reality) is\b
+\bfundamentally\b
+\bthe deeper issue\b
+\bis the (language|currency|architecture) of\b
+\bwhat (surprised|struck) me\b
+\bi keep coming back to\b
+\bin other words\b
+\bput differently\b
+\bwhat this means is\b
+\bthe key insight\b
+\blens through which\b
+\bultimately\b
+\b(comes|boils) down to\b
+\bcould potentially\b
+\bmay eventually\b
+\bmight ultimately\b
+\bit'?s (important|worth) to note\b
+\bnotably\b
+\bimportantly\b
+\binterestingly\b
+\bremarkably\b
+\bspeaks to a (larger|broader|deeper)\b
+\bfuture looks bright\b
+\bexciting times ahead\b
+\bonly time will tell\b
+\bstep in the right direction\b
+\bwhether you'?re an? .{1,40} or\b
+\bin today'?s\b
+\bin an era where\b
+\bever.evolving\b
+\bexperts (argue|believe|say)\b
+\bstudies show\b
+\bresearch suggests\b
+\bmany believe\b
+\bas of my (last|knowledge)\b
+\[(your|insert|add|describe) [^]]+\]
+\b[0-9]{4}-XX-XX\b
+ –( |$)
+ --( |$)
+\b(paramount|invaluable|noteworthy|holistic|nuanced|myriad|plethora|cornerstone|realm|paradigm|embark|beacon|elevate|unleash|orchestrate|nexus|synergy|synergies|impactful|learnings)\b
+
+# --- Our own plumbing showing through (Jason, 2026-11-16: a handout said "Built by build_sheets.py").
+# Script and notes file names belong in HTML comments and records, never in what a reader sees.
+\b[A-Za-z0-9_-]+\.(py|md|json|sh|ya?ml|ipynb)\b
+
+# --- Jason's banned words (feedback memory, 2026-11-05 onward)
+\bshap(e|es|ed|ing)\b
+\bseams?\b
+\blandscapes?\b
+\bleverag(e|es|ed|ing)\b
+\bunlock(s|ed|ing)?\b
+\bjourneys?\b
+\bdelv(e|es|ed|ing)\b
+\bdeep dives?\b
+\brobust(ly|ness)?\b
+\bseamless(ly)?\b
+\bcrucial(ly)?\b
+\bpivotal\b
+\benhanc(e|es|ed|ing|ement)\b
+\bfoster(s|ed|ing)?\b
+\bshowcas(e|es|ed|ing)\b
+\bunderscor(e|es|ed|ing)\b
+\btapestry\b
+\btestament\b
+\bvibrant\b
+\bintricat(e|ely|ies|y)\b
+\bmultifaceted\b
+\bdependabl(e|y)\b
+\bstead(y|ily)\b
+\bquietly\b
+\bprioriti[sz](e|es|ed|ing)\b
+\bnavigat(e|es|ed|ing)\b
+\bempower(s|ed|ing|ment)?\b
+\bharness(es|ed|ing)?\b
+\bstreamlin(e|es|ed|ing)\b
+\bsupercharg(e|es|ed|ing)\b
+\binsights?\b
+\bactionable\b
+\bthink of it as\b
+\bat its core\b
+\bthe power of\b
+\brather than\b
+
+# --- Wikipedia, "Signs of AI writing": AI vocabulary across 2023 to 2026
+\badditionally\b
+\balign(s|ed)? with\b
+\bboasts?\b
+\bbolster(s|ed|ing)?\b
+\bemphasi[sz](e|es|ed|ing)\b
+\benduring\b
+\bgarner(s|ed|ing)?\b
+\binterplay\b
+\bmeticulous(ly)?\b
+\bresonat(e|es|ed|ing)\b
+\buniversally\b
+\bechoed\b
+\bhighlight(s|ing|ed)? (the|its|how|that|their)\b
+\bkey (role|moment|turning point|takeaway)\b
+
+# --- Wikipedia: puffed-up significance, and is/are avoided
+\b(serves|served|serving|stands|stood) as\b
+\bplays? an? (crucial|vital|key|significant|pivotal|important) role\b
+\breflects? (a )?broader\b
+\bsetting the stage\b
+\bevolving\b
+\bfocal point\b
+\bindelible\b
+\bdeeply rooted\b
+\bmarks? a (shift|turning point|milestone)\b
+
+# --- Wikipedia: chatbot correspondence left in the text
+\bi hope this helps\b
+\bhappy to help\b
+\bfeel free\b
+\bdon'?t hesitate\b
+\bgreat question\b
+\bcertainly!
+\bof course!
+\byou'?re absolutely right\b
+\bwould you like (me|a|to)\b
+
+# --- slop-guard 0.5.0 (MIT, Eric W. Tramel, github.com/eric-tramel/slop-guard): slop words
+# not already above. slop-guard scores these with small penalties; here one hit fails, so
+# the words that are ordinary in plain business writing are on the read-by-hand line instead.
+\b(groundbreaking|revolutionary|pioneering|visionary|quintessential|unparalleled|breathtaking|captivating|nestled|cutting-edge|impeccable|fascinatingly)\b
+\b(transcend|transcends|transcended|reshap(e|es|ed|ing))\b
+\b(symphony|odyssey|pinnacle|intricacies)\b
+# read-by-hand: profound, comprehensive, notable, formidable, stunning, innovative, foundational, collaborative, societal, stylistic
+# read-by-hand: embrace, ensuring, highlighting, reflecting, trajectory, spectrum, ecosystem, authenticity, narrative, perseverance
+# read-by-hand: significantly, surprisingly, subtly
+
+# --- slop-guard 0.5.0: slop phrases, tone markers and false narrative turns
+\bthis is where things get interesting\b
+\bas technology continues to\b
+\b(something shifted|everything changed|then something interesting happened)\b
+\bthe answer\?? (it'?s|is) simpler than (you think|it seems)\b
+\bthe answer is straightforward\b
+\bwhat (truly )?makes this work is\b
+\bthis is exactly\b
+\bin this (post|article),? we'?ll\b
+\bas (i|we) mentioned\b
+\bas mentioned (earlier|above|before)\b
+\bwithout further ado\b
+\bin (summary|conclusion)\b
+\byou might be wondering\b
+\bthe obvious question is\b
+\bno discussion would be complete\b
+\bthat'?s a great\b
+\bif you('d like| want),? i can\b
+\bi can (adapt|make) this\b
+\bhere are (some|a few) options\b
+\bwould you prefer\b
+\bshall i\b
+\bthat is to say\b
+\bto put it (simply|another way)\b
+\bmany moving parts\b
+\bthe results will follow\b
+\bsmall fixes add up\b
+\buntethered from\b
+\blived reality\b
+\bwe inhabit\b
+\bin contemporary\b
+\bthe practical (implication|consequence) is\b
+\bremains essential\b
+# read-by-hand: in addition, on the other hand, on the same page, long-term impact, without overwhelming, example scenario
+# read-by-hand: collaborate closely, address this gap, communicate openly, can feel overwhelming, work together to build
+# read-by-hand: effective communication, great starting point, providing clear, can vary based on, specific needs
+# read-by-hand: to adapt to different, adapt to different, dynamic environment, build confidence, informed decision
+# read-by-hand: learned behavior, strategic direction, these findings suggest, these results suggest, these metrics suggest
+# read-by-hand: these observations suggest, these measurements suggest, it remains unclear, does not necessarily imply
+# read-by-hand: note that this, note that the, making them available, making it available, i can also, as mentioned
+# read-by-hand: let me know if, would you like, i hope this
+
+# --- slop-guard 0.5.0: weasel phrases and AI disclosure
+\b(some (critics )?argue|experts suggest|it is widely believed)\b
+\bas (an ai|a language model)\b
+\bi don'?t have personal\b
+\bi cannot browse\b
+\bup to my last training\b

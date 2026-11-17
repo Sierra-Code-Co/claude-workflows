@@ -3,16 +3,23 @@
 # See ADR-0010 and scripts/sync-public.sh. Directories end with '/'.
 #
 # One thing syncs OUTSIDE this allowlist: the public/ overlay (the mirror's
-# README.md, docs/, LICENSE). It is output-only content that exists solely to
-# be published, so sync-public.sh applies it as a separate step after staging.
+# README.md, docs/, LICENSE, and .claude-plugin/marketplace.json, the plugin
+# list that makes the mirror a Claude Code marketplace). It is output-only
+# content that exists solely to be published, so sync-public.sh applies it as a
+# separate step after staging.
+#
+# dotfiles/ includes dotfiles/claude/skills/, the personal skill library
+# (ADR-0013). Everything placed there is public on the next sync; the plugin
+# list points into it and dist/copilot/ is built from it.
 #
 # Deliberately absent, and why:
 #   STATE.md                — machine/fleet inventory incl. client repo names
 #   CHANGELOG.md            — internal history, references private repos
 #   CLAUDE.md               — instructions for working in the internal repo
-#   specs/002-*, specs/003- — fleet rollout specs naming consulting clients
-#   .claude/                — skills mirror internal-speckit-template (already
-#                             public there; a third copy would drift)
+#   specs/002-*             — fleet rollout spec naming consulting clients
+#   .claude/                — project skills mirror internal-speckit-template
+#                             (already public there; a third copy would drift).
+#                             Personal skills are under dotfiles/ instead.
 #   .specify/               — spec-kit framework machinery, same reason
 #   .github/workflows/check-speckit-update.yml — files maintenance issues
 #   scripts/public-denylist.txt — hard-excluded by sync-public.sh even though
@@ -26,6 +33,8 @@ rules/
 references/
 specs/001-review-plan-v2/
 specs/003-gate-portfolio/
+specs/004-skill-library/
+dist/copilot/
 experiments/
 gates.yml
 .review-plan-v2.yaml

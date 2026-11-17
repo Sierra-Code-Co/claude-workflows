@@ -40,6 +40,28 @@ reviews:
     - '!**/coverage/**'
     - '!**/package-lock.json'
     - '!**/pnpm-lock.yaml'
+    # Vendored spec-kit content — upstream-owned, re-vendored release by release.
+    # Reviewing it yields upstream findings nobody here can act on, and on the
+    # CodeRabbit side it spends the review on them.
+    #
+    # One edit governs both tools, and this is the only file where that is true:
+    # review-plan-v2 reads `path_filters` from `.coderabbit.yaml` ONLY — top level
+    # or under `reviews:` — and takes nothing of the kind from
+    # `.review-plan-v2.yaml`, which supplies `high_risk_paths`, the numeric tuning
+    # keys, `always_include_files`, and `import_aliases`. A `path_filters:` block
+    # written there is silently ignored, and an empty filter means review
+    # everything, so a filter in the wrong file is indistinguishable from no
+    # filter while reading as protection.
+    #
+    # Still true after the 2026-08-28 retirement of review-plan-v2's AI legs, and
+    # measured rather than assumed: a `--static-only` run over a two-file diff in
+    # a repo whose `.coderabbit.yaml` excluded one of them printed
+    # `path_filters: reviewing 1 of 2 changed file(s)`. What changed is the
+    # rationale on that side — a static run bills nothing, so the filter now only
+    # decides which files the deterministic analyzers see. Confirm a filter from
+    # that `reviewing N of M` line, never from a config file containing the word.
+    - '!.claude/skills/speckit-*/**'
+    - '!.specify/**'
 
   auto_review:
     enabled: true
